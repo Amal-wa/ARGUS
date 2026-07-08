@@ -1,0 +1,24 @@
+# Secrets
+.env
+**/.env
+docker/.env
+
+# Vault (dev mode génère des données locales)
+vault-data/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Node
+node_modules/
+
+# Databases locales
+pgdata/
+redis_data/
+
+# IDE
+.vscode/
+.idea/

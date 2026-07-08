@@ -1,0 +1,21 @@
+
+
+{"input":{
+        "sub":"Amelbenkhalifa",
+        "role":"admin",
+        "resource":"security/consultant",
+        "action":"GET",
+        "timestamp":"2024-06-01T12:35:00Z",
+        "odd_hour":false,
+        "location":{
+            "ip":"192.168.1.1"
+        },  
+       
+        
+        "risk_ctx": {
+            "score": 0.2
+        },
+
+        "amr": ["password", "otp"]
+    }
+}
