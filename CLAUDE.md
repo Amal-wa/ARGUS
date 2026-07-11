@@ -68,11 +68,16 @@ contract (e.g. it explains why `odd_hour` is a model feature, not a Rego input).
 
 ### Data layer
 
-Schema is defined **twice** and must be kept in sync manually:
-- `db/init/*.sql` — numbered init scripts Postgres runs on first container start (roles, `events`,
-  `opa_decision_log`, `event_anomaly`, `ml_training_samples`, `canary_validation_log`).
-- `services/api-gateway/app/models/tables.py` — SQLAlchemy Core `Table` definitions (used by Alembic env.py as
-  `target_metadata`, and by `core/repositories.py` for inserts).
+**Alembic (`services/api-gateway/alembic/versions/`) is the single source of truth for the database schema.** It's
+the only mechanism that creates/alters tables at runtime — the gateway's start command runs `alembic upgrade head`
+before `uvicorn`. `services/api-gateway/app/models/tables.py` holds the SQLAlchemy Core `Table` definitions that
+Alembic's `env.py` uses as `target_metadata` for autogenerate, and that `core/repositories.py` uses for inserts.
+
+`db/init/*.sql` is **not** mounted into the `postgres` service (no `docker-entrypoint-initdb.d` volume in
+`docker/docker-compose.yml`) and is never executed. These files are a frozen historical snapshot of the original
+6-table schema (migration `0001`) kept only as human-readable reference — they can drift from the live schema and
+don't need updating when new migrations land. Don't add new files there and don't treat them as authoritative; to
+see the current schema, read the migrations in `alembic/versions/` (in order) or `app/models/tables.py`.
 
 `opa_decision_log` is the append-only decision audit trail; `event_anomaly` references it by `id_log`
 (`ON DELETE RESTRICT`); `ml_training_samples` holds the 20-feature vectors consumed by the (not-yet-implemented)
@@ -86,8 +91,8 @@ react-dashboard), `internal_net` (postgres, redis, vault, opa, and every backend
 (react-dashboard only, for now). `api-gateway` is the only service in both `dmz_net` and directly reachable by
 clients; ML services are only ever called *by* the gateway, never exposed to `dmz_net` traffic directly. A shared
 `models-volume` is mounted into `isolation-forest`, `canary-validator`, and `ml-trainer` for the trained model
-artifacts. `api-gateway` starts with `alembic stamp head && uvicorn --reload` — migrations are stamped, not run,
-on container start (the DB schema comes from `db/init/*.sql`, not from Alembic migrations, in local dev).
+artifacts. `api-gateway` starts with `alembic upgrade head && uvicorn --reload` — migrations run for real on
+container start, applying `alembic/versions/` in order against whatever schema state Postgres already has.
 
 Isolation Forest deliberately has **no** `REDIS_URL` — the gateway builds the complete feature vector (including
 Redis-derived counters) before calling it, so it only ever receives a plain number vector and only writes to

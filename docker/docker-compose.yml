@@ -42,6 +42,7 @@ services:
     environment:
       VAULT_DEV_ROOT_TOKEN_ID: dev-root-token
       VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+      VAULT_ADDR: http://127.0.0.1:8200
     ports:
       - "8200:8200"
     cap_add:
@@ -53,6 +54,19 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+  vault-init:
+    image: hashicorp/vault:1.20.2
+    container_name: vault-init
+    depends_on:
+      vault:
+        condition: service_healthy
+    volumes:
+      - ./vault-init.sh:/vault-init.sh:ro
+    entrypoint: ["/bin/sh", "/vault-init.sh"]
+    networks:
+      - internal_net
+    # This container runs once and exits 0 - it is not a long-running service.
 
   opa:
     image: openpolicyagent/opa:1.18.1
@@ -75,7 +89,7 @@ services:
     healthcheck:
       # Corrigé : le protocole doit correspondre à --addr http:// ci-dessus,
       # sinon le healthcheck échoue systématiquement même si OPA fonctionne.
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8181/health"]
+      test: ["CMD", "opa", "eval", "--fail", "1"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -108,13 +122,15 @@ services:
         condition: service_healthy
       vault:
         condition: service_healthy
+      vault-init:
+        condition: service_completed_successfully
       opa:
         condition: service_healthy
-      isolation-forest:
-        condition: service_healthy
+      #isolation-forest:
+        #condition: service_healthy
     volumes:
       - ../services/api-gateway:/app
-    command: sh -c "poetry run alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app"
+    command: sh -c "poetry run alembic upgrade head && poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app"
     networks:
       - dmz_net
       - internal_net
