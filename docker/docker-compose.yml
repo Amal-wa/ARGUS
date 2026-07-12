@@ -202,18 +202,26 @@ services:
       context: ../services/ml-trainer
       dockerfile: Dockerfile
     container_name: ml-trainer
+    profiles: ["jobs"]
     environment:
       DATABASE_URL: postgresql://postgres:admin@postgres:5432/zt_db
+      REDIS_URL: redis://redis:6379/0
       TRAINING_WINDOW_DAYS: 30
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     volumes:
       - models-volume:/models
     networks:
       - internal_net
     # Déclenché sur planification hebdomadaire (scheduler externe ou cron interne
-    # au conteneur) — pas de port exposé, aucun appel client direct.
+    # au conteneur) — pas de port exposé, aucun appel client direct. One-shot job:
+    # `profiles: ["jobs"]` keeps it out of a plain `docker compose up` — invoke
+    # explicitly with `docker compose run --rm ml-trainer` (or the same command
+    # from an external weekly scheduler). No healthcheck: a container that exits
+    # 0 on success has no "running" state for a healthcheck to observe.
 
   behavioral-detector:
     build:

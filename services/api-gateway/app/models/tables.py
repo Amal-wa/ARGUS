@@ -174,3 +174,15 @@ canary_validation_log_table = Table(
     CheckConstraint("production_risk_score >= 0.0 AND production_risk_score <= 1.0", name="ck_canary_validation_log_production_risk_score"),
     CheckConstraint("candidate_risk_score >= 0.0 AND candidate_risk_score <= 1.0", name="ck_canary_validation_log_candidate_risk_score"),
 )
+
+ml_model_registry_table = Table(
+    "ml_model_registry",
+    metadata,
+    Column("model_version", String(length=50), primary_key=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),
+    Column("training_window_start", DateTime(timezone=True), nullable=False),
+    Column("training_window_end", DateTime(timezone=True), nullable=False),
+    Column("training_samples", Integer, nullable=False),
+    Column("hyperparameters", JSONB, nullable=False),
+    CheckConstraint("training_samples > 0", name="ck_ml_model_registry_training_samples"),
+)
