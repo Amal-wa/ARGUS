@@ -19,6 +19,7 @@ from app.services.feature_vector import FeatureVectorService
 class AuthorizationOutcome:
     decision: OpaDecision
     response_payload: dict[str, object] | None = None
+    risk_ctx: RiskScoreResult | None = None
 
 
 @dataclass(slots=True)
@@ -44,10 +45,17 @@ class AuthorizationService:
         if active_model_version is not None:
             risk_ctx = await self.scoring_client.score(feature_vector)
 
+        mfa_verified = context.is_post_step_up
+        verified_marker = await self.redis_client.get(f"mfa:verified:{context.claims.subject}")
+        if verified_marker is not None:
+            context.is_post_step_up = True
+            mfa_verified = True
+
         opa_input = OpaPolicyInput(
             identity={"subject": context.claims.subject, "role": context.claims.role},
             resource={"http_method": context.method, "route": route_pattern, "action": action},
             risk_ctx={"score": risk_ctx.risk_score, "model_version": risk_ctx.model_version},
+            mfa={"verified": mfa_verified},
             is_post_step_up=context.is_post_step_up,
             feature_vector=feature_vector,
         )
@@ -64,7 +72,7 @@ class AuthorizationService:
                 ip_address=context.ip_address,
                 risk_score=risk_ctx.risk_score,
                 model_version=risk_ctx.model_version,
-                decision=decision.decision.value,
+                decision=decision.decision.value.lower(),
                 policy_name=decision.policy_name,
                 reason=decision.reason,
                 latency_ms=context.latency_ms(),
@@ -81,16 +89,18 @@ class AuthorizationService:
                         model_version=risk_ctx.model_version,
                     )
                 )
-            return AuthorizationOutcome(decision=decision.decision)
+            return AuthorizationOutcome(decision=decision.decision, risk_ctx=risk_ctx)
 
         if decision.decision == OpaDecision.DENY:
             await self.feature_vector_service.record_deny(context)
             return AuthorizationOutcome(
                 decision=decision.decision,
                 response_payload={"detail": "access denied"},
+                risk_ctx=risk_ctx,
             )
 
         return AuthorizationOutcome(
             decision=decision.decision,
             response_payload={"detail": "step_up_required"},
+            risk_ctx=risk_ctx,
         )

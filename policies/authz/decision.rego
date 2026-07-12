@@ -1,4 +1,4 @@
-package authz.decision
+package authz
 
 import data.authz.rbac
 import data.authz.adaptive_access

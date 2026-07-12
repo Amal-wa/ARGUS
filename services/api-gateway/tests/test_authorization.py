@@ -104,6 +104,10 @@ def test_authorize_allow_persists_decision_and_training_sample():
         assert service.opa_client.payloads[0].risk_ctx.score is None
         assert service.opa_client.payloads[0].mfa.verified is False
         assert service.opa_client.payloads[0].is_post_step_up is False
+        # Must match the lowercase Postgres decision_type enum (allow/deny/step_up),
+        # not the uppercase OpaDecision.value ("ALLOW") -- a real-DB-only bug the
+        # RecordingRepository fake can't catch on its own.
+        assert repo.decisions[0].decision == "allow"
 
     asyncio.run(_run())
 

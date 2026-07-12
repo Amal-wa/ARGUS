@@ -41,7 +41,9 @@ Every HTTP request passes through a single Starlette middleware, `GatewayMiddlew
      `model:active_version` is set in Redis — otherwise risk_ctx stays `{score: null}` (**bootstrap mode**, before
      any ML model has been trained).
    - Calls **OPA** (`core/opa_client.py`, `POST {OPA_URL}/v1/data/authz/decision`) with an `OpaPolicyInput`
-     (identity, resource, risk_ctx, `is_post_step_up`, feature_vector).
+     (identity, resource, risk_ctx, `mfa`, `is_post_step_up`, feature_vector) wrapped as `{"input": ...}` —
+     OPA's REST API requires the `input` envelope; without it OPA evaluates against an undefined `input` and
+     RBAC silently denies.
    - Persists every decision to `opa_decision_log`, and — only on ALLOW *and not post-step-up* — writes an
      `ml_training_samples` row (avoids feeding step-up-tainted samples back into training).
    - `ALLOW` → request proceeds to the route handler; `DENY` → 403; `STEP_UP` → 401 with
@@ -59,9 +61,12 @@ Mounted read-only into the `opa` container at `/policy` (see `docker/docker-comp
   missing `risk_ctx` entirely is treated as a contract violation, not bootstrap — see comment in that file).
 - `authz.mfa` (`policies/risk/mfa.rego`) — trusts `input.mfa.verified`; OPA never verifies TOTP itself, the
   Gateway does that and reports the result.
-- `authz.decision` (`policies/authz/decision.rego`) — combines the three into a final `{decision, policy_name}`,
+- `authz` (`policies/authz/decision.rego`) — combines the three into a final `{decision, policy_name}`,
   defaulting to `deny`/`malformed_input_deny`. Decision precedence: RBAC deny wins first; then bootstrap-allow;
-  then risk-allow; then MFA-verified-allow; then step-up-required.
+  then risk-allow; then MFA-verified-allow; then step-up-required. Package is `authz` (not `authz.decision`) —
+  the rule inside it is also named `decision`, so a package named `authz.decision` would make OPA's
+  `/v1/data/authz/decision` endpoint return a double-nested `{"decision": {"decision": ..., "policy_name": ...}}`
+  instead of the flat object `OpaClient` expects.
 
 Policy input/output contract notes live in `tests/policies/README.md` — read it before changing the risk/MFA
 contract (e.g. it explains why `odd_hour` is a model feature, not a Rego input).

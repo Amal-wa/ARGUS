@@ -23,7 +23,7 @@ class OpaClient:
         endpoint = f"{self.base_url.rstrip('/')}{self.decision_path}"
         request = Request(
             endpoint,
-            data=payload.model_dump_json().encode("utf-8"),
+            data=json.dumps({"input": payload.model_dump(mode="json")}).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",
         )

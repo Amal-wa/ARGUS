@@ -77,6 +77,34 @@ def test_opa_client_raises_unavailable_on_string_result(monkeypatch):
         client._decide_sync(payload)
 
 
+def test_opa_client_wraps_payload_in_input_key(monkeypatch):
+    client = OpaClient(base_url="http://opa:8181", decision_path="/v1/data/authz/decision", timeout_seconds=0.1)
+    payload = OpaPolicyInput.model_validate(
+        {
+            "identity": {"subject": "11111111-1111-1111-1111-111111111111", "role": "reader"},
+            "resource": {"http_method": "GET", "route": "/documents/{id}", "action": "read"},
+            "risk_ctx": {"score": None, "model_version": None},
+            "mfa": {"verified": False},
+            "is_post_step_up": False,
+            "feature_vector": [],
+        }
+    )
+    captured_request = {}
+
+    def fake_urlopen(request, timeout):
+        captured_request["request"] = request
+        return FakeHTTPResponse(200, json.dumps({"result": {"decision": "allow", "policy_name": "risk_allow"}}))
+
+    monkeypatch.setattr("app.core.opa_client.urlopen", fake_urlopen)
+
+    client._decide_sync(payload)
+
+    sent_body = json.loads(captured_request["request"].data.decode("utf-8"))
+    assert set(sent_body.keys()) == {"input"}
+    assert sent_body["input"]["identity"]["role"] == "reader"
+    assert sent_body["input"]["mfa"]["verified"] is False
+
+
 def test_opa_client_raises_unavailable_on_connection_failure(monkeypatch):
     client = OpaClient(base_url="http://opa:8181", decision_path="/v1/data/authz/decision", timeout_seconds=0.1)
     payload = OpaPolicyInput.model_validate(
