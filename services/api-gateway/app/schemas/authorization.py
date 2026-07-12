@@ -28,10 +28,15 @@ class RiskContext(BaseModel):
     model_version: str | None = None
 
 
+class MfaContext(BaseModel):
+    verified: bool = False
+
+
 class OpaPolicyInput(BaseModel):
     identity: IdentityContext
     resource: ResourceContext
     risk_ctx: RiskContext = Field(default_factory=RiskContext)
+    mfa: MfaContext = Field(default_factory=MfaContext)
     is_post_step_up: bool = False
     feature_vector: list[float] = Field(default_factory=list)
 

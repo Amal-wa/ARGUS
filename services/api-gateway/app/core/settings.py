@@ -30,3 +30,8 @@ class GatewaySettings:
     rate_limit_window_seconds: int = 60
     jwk_refresh_lock_ttl_seconds: int = _required_int_env("JWK_REFRESH_LOCK_TTL_SECONDS", 30)
     replay_ttl_seconds: int | None = None
+    mfa_max_failed_attempts: int = _required_int_env("MFA_MAX_FAILED_ATTEMPTS", 5)
+    mfa_lockout_duration_minutes: int = _required_int_env("MFA_LOCKOUT_DURATION_MINUTES", 15)
+    mfa_challenge_ttl_seconds: int = _required_int_env("MFA_CHALLENGE_TTL_SECONDS", 120)
+    totp_replay_ttl_seconds: int = _required_int_env("TOTP_REPLAY_TTL_SECONDS", 90)
+    mfa_verified_ttl_seconds: int = _required_int_env("MFA_VERIFIED_TTL_SECONDS", 300)

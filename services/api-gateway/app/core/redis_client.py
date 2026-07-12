@@ -17,6 +17,8 @@ class RedisLike(Protocol):
 
     async def set(self, key: str, value: Any, *, ex: int | None = None, nx: bool = False) -> bool: ...
 
+    async def delete(self, key: str) -> int: ...
+
     async def sadd(self, key: str, *members: str) -> int: ...
 
     async def scard(self, key: str) -> int: ...
@@ -85,6 +87,14 @@ class InMemoryRedis:
         self._sets.pop(key, None)
         self._sorted_sets.pop(key, None)
         return True
+
+    async def delete(self, key: str) -> int:
+        self._purge_expired(key)
+        existed = key in self._strings or key in self._sets or key in self._sorted_sets
+        self._strings.pop(key, None)
+        self._sets.pop(key, None)
+        self._sorted_sets.pop(key, None)
+        return 1 if existed else 0
 
     async def sadd(self, key: str, *members: str) -> int:
         self._purge_expired(key)

@@ -16,8 +16,11 @@ from app.middleware.jti_blacklist import check_jti_blacklist
 from app.middleware.rate_limit import enforce_ip_rate_limit, enforce_user_rate_limit
 from app.middleware.replay import check_replay
 from app.services.authorization import AuthorizationService
+from app.services.mfa_challenge import MfaChallengeService
+from app.services.mfa_enrollment import MfaEnrollmentService
 
 PUBLIC_PATHS = {"/health"}
+GATEWAY_INTERNAL_PATHS = {"/mfa/enroll", "/mfa/challenge/verify"}
 
 
 @dataclass(slots=True)
@@ -27,6 +30,8 @@ class GatewayServices:
     redis_client: object
     event_logger: object
     authorization_service: AuthorizationService
+    mfa_challenge_service: MfaChallengeService
+    mfa_enrollment_service: MfaEnrollmentService
 
 
 class GatewayMiddleware(BaseHTTPMiddleware):
@@ -96,6 +101,9 @@ class GatewayMiddleware(BaseHTTPMiddleware):
         if replay is not None:
             return JSONResponse({"detail": "replay detected"}, status_code=401)
 
+        if context.path in GATEWAY_INTERNAL_PATHS:
+            return await call_next(request)
+
         try:
             outcome = await services.authorization_service.authorize(request=request, context=context)
         except OpaUnavailableError as exc:
@@ -120,4 +128,37 @@ class GatewayMiddleware(BaseHTTPMiddleware):
             return response
         if outcome.decision.name == "DENY":
             return JSONResponse(outcome.response_payload or {"detail": "access denied"}, status_code=403)
-        return JSONResponse(outcome.response_payload or {"detail": "step_up_required"}, status_code=401)
+
+        challenge_id = await services.mfa_challenge_service.create_challenge(context, outcome.risk_ctx)
+        if challenge_id is None:
+            await services.event_logger.write(
+                EventPayload(
+                    trace_id=context.trace_id,
+                    user_id=context.claims.subject,
+                    ip_address=context.ip_address,
+                    http_method=context.method,
+                    request_path=context.path,
+                    latency_ms=context.latency_ms(),
+                    http_status=403,
+                    event_type="mfa_failed",
+                    error_code="mfa_not_enrolled",
+                    error_message="Step-up required but user has no MFA enrollment",
+                )
+            )
+            return JSONResponse({"detail": "mfa_not_configured"}, status_code=403)
+
+        await services.event_logger.write(
+            EventPayload(
+                trace_id=context.trace_id,
+                user_id=context.claims.subject,
+                ip_address=context.ip_address,
+                http_method=context.method,
+                request_path=context.path,
+                latency_ms=context.latency_ms(),
+                http_status=401,
+                event_type="step_up_required",
+                error_code="step_up_required",
+                error_message="Step-up MFA challenge issued",
+            )
+        )
+        return JSONResponse({"detail": "step_up_required", "challenge_id": challenge_id}, status_code=401)
