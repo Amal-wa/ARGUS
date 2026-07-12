@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import insert
+from sqlalchemy import case, func, insert, select, update
 
-from app.models.tables import ml_training_samples_table, opa_decision_log_table
+from app.models.tables import ml_training_samples_table, opa_decision_log_table, user_mfa_table
 
 
 @dataclass(slots=True)
@@ -69,5 +70,87 @@ class AuthorizationRepository:
                     risk_score=record.risk_score,
                     model_version=record.model_version,
                 )
+            )
+            await session.commit()
+
+
+@dataclass(slots=True)
+class UserMfaRecord:
+    user_id: UUID
+    totp_secret_ciphertext: str
+    failed_attempts: int
+    locked_until: datetime | None
+
+
+def _row_to_user_mfa_record(row) -> UserMfaRecord:
+    return UserMfaRecord(
+        user_id=row.user_id,
+        totp_secret_ciphertext=row.totp_secret_ciphertext,
+        failed_attempts=row.failed_attempts,
+        locked_until=row.locked_until,
+    )
+
+
+class UserMfaRepository:
+    def __init__(self, session_factory):
+        self._session_factory = session_factory
+
+    async def get(self, user_id: UUID) -> UserMfaRecord | None:
+        stmt = select(
+            user_mfa_table.c.user_id,
+            user_mfa_table.c.totp_secret_ciphertext,
+            user_mfa_table.c.failed_attempts,
+            user_mfa_table.c.locked_until,
+        ).where(user_mfa_table.c.user_id == user_id)
+        async with self._session_factory() as session:
+            row = (await session.execute(stmt)).one_or_none()
+        return None if row is None else _row_to_user_mfa_record(row)
+
+    async def create(self, user_id: UUID, totp_secret_ciphertext: str) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                insert(user_mfa_table).values(
+                    user_id=user_id,
+                    totp_secret_ciphertext=totp_secret_ciphertext,
+                    failed_attempts=0,
+                    locked_until=None,
+                )
+            )
+            await session.commit()
+
+    async def record_failed_attempt(
+        self, user_id: UUID, *, max_attempts: int, lockout_duration_minutes: int
+    ) -> UserMfaRecord:
+        incremented = user_mfa_table.c.failed_attempts + 1
+        reached_limit = incremented >= max_attempts
+        stmt = (
+            update(user_mfa_table)
+            .where(user_mfa_table.c.user_id == user_id)
+            .values(
+                failed_attempts=case((reached_limit, 0), else_=incremented),
+                locked_until=case(
+                    (reached_limit, func.now() + func.make_interval(0, 0, 0, 0, 0, lockout_duration_minutes)),
+                    else_=user_mfa_table.c.locked_until,
+                ),
+                updated_at=func.now(),
+            )
+            .returning(
+                user_mfa_table.c.user_id,
+                user_mfa_table.c.totp_secret_ciphertext,
+                user_mfa_table.c.failed_attempts,
+                user_mfa_table.c.locked_until,
+            )
+        )
+        async with self._session_factory() as session:
+            row = (await session.execute(stmt)).one()
+            await session.commit()
+        return _row_to_user_mfa_record(row)
+
+    async def reset_on_success(self, user_id: UUID) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                update(user_mfa_table)
+                .where(user_mfa_table.c.user_id == user_id)
+                .values(failed_attempts=0, locked_until=None, updated_at=func.now())
             )
             await session.commit()
