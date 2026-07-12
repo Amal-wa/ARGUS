@@ -126,8 +126,8 @@ services:
         condition: service_completed_successfully
       opa:
         condition: service_healthy
-      #isolation-forest:
-        #condition: service_healthy
+      isolation-forest:
+        condition: service_healthy
     volumes:
       - ../services/api-gateway:/app
     command: sh -c "poetry run alembic upgrade head && poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app"
@@ -145,11 +145,17 @@ services:
       - "8001"
     environment:
       DATABASE_URL: postgresql://postgres:admin@postgres:5432/zt_db
-      # Pas de REDIS_URL ici : le Gateway construit déjà le feature_vector complet
-      # (lectures Redis incluses) avant l'appel — Isolation Forest ne reçoit
-      # qu'un vecteur de nombres en entrée et n'écrit que dans PostgreSQL.
+      REDIS_URL: redis://redis:6379/0
+      # REDIS_URL is read-only here: the Gateway still builds the complete
+      # feature_vector itself (Redis-derived counters included) before calling
+      # /score, so Isolation Forest never touches feature keys. The only thing
+      # it reads from Redis is model:active_version, polled every 30s to know
+      # which trained model file to hot-swap in — it still never writes to
+      # Redis or Postgres.
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     volumes:
       - models-volume:/models

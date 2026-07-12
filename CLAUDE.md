@@ -9,11 +9,11 @@ behavioral feature vector, gets a risk score from an ML anomaly-detection servic
 Agent) policy bundle for an ALLOW / DENY / STEP_UP decision — logging every decision for later ML training and
 canary model comparisons.
 
-Only two components currently have real implementations: **`services/api-gateway`** (Python/FastAPI) and the
-**`policies/`** OPA/Rego bundle. Everything else in `services/` (`isolation-forest`, `canary-validator`,
-`behavioral-detector`, `ml-trainer`, `react-dashboard`) is scaffolding only — Dockerfiles/pyproject/package.json
-exist but are currently empty, and `docker-compose.yml` already wires them in for when they're built out. Don't
-assume code exists there; check first.
+Three components currently have real implementations: **`services/api-gateway`** (Python/FastAPI), the
+**`policies/`** OPA/Rego bundle, and **`services/isolation-forest`** (FastAPI + scikit-learn scoring service).
+Everything else in `services/` (`canary-validator`, `behavioral-detector`, `ml-trainer`, `react-dashboard`) is
+scaffolding only — Dockerfiles/pyproject/package.json exist but are currently empty, and `docker-compose.yml`
+already wires them in for when they're built out. Don't assume code exists there; check first.
 
 ## Architecture
 
@@ -99,14 +99,19 @@ clients; ML services are only ever called *by* the gateway, never exposed to `dm
 artifacts. `api-gateway` starts with `alembic upgrade head && uvicorn --reload` — migrations run for real on
 container start, applying `alembic/versions/` in order against whatever schema state Postgres already has.
 
-Isolation Forest deliberately has **no** `REDIS_URL` — the gateway builds the complete feature vector (including
-Redis-derived counters) before calling it, so it only ever receives a plain number vector and only writes to
-Postgres. `behavioral-detector` and `ml-trainer` are unexposed background jobs (no `ports`/`expose`), triggered on
+Isolation Forest (`services/isolation-forest`) has a `REDIS_URL`, but only to poll `model:active_version` every
+`MODEL_POLL_INTERVAL_SECONDS` (default 30s) and hot-swap in the corresponding `{MODELS_DIR}/model_{version}.joblib`
+— see `app/model_store.py`. It never touches feature keys and never writes to Redis or Postgres; the Gateway still
+builds the complete feature vector itself (Redis-derived counters included) before calling `POST /score`, which
+only ever receives a plain number vector back. `GET /health` reports `model_loaded: false` while no model is
+loaded (a documented bootstrap state, not unhealthy) so the Gateway's `depends_on: service_healthy` is satisfied
+even before any model has been trained; `POST /score` with no model loaded returns 503 (never a fake score).
+`behavioral-detector` and `ml-trainer` are unexposed background jobs (no `ports`/`expose`), triggered on
 a schedule, reading `events`/`opa_decision_log` and writing `event_anomaly` / training a new model version.
 
 ## Commands
 
-All commands below assume `cd services/api-gateway` (the only service with real code/tests today).
+Commands in this section assume `cd services/api-gateway` unless noted otherwise.
 
 ```bash
 # Install deps (Poetry)
@@ -129,6 +134,12 @@ plain `asyncio.run(_run())`. External dependencies (OPA, Isolation Forest, Redis
 small `@dataclass` recorders in each test file rather than mocked — follow that pattern for new tests. `InMemoryRedis`
 (`app/core/redis_client.py`) is the fallback/test double for real Redis and is also what `main.py` falls back to if
 the real Redis connection fails at startup.
+
+`services/isolation-forest` has its own independent Poetry project (`cd services/isolation-forest`) —
+`poetry install` / `poetry run pytest` there. Unlike the gateway, its tests use a real (tiny, synthetic-data)
+`sklearn.ensemble.IsolationForest` trained and `joblib.dump`ed into a `tmp_path` per test, not a mock — see
+`tests/test_model_store.py`. `tests/test_score_endpoint.py` drives the FastAPI app with `TestClient` (`httpx` is a
+dev dependency only for this).
 
 ```bash
 # Bring up the full stack (Postgres, Redis, Vault, OPA, api-gateway, and the ML/dashboard stubs)

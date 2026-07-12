@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "isolation-forest"
+version = "0.1.0"
+description = "Zero Trust Isolation Forest anomaly scoring service"
+authors = ["Amel Ben Khalifa <amel.benkhalifa@supcom.tn>"]
+packages = [{ include = "app" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.115.0"
+uvicorn = { version = "^0.30.0", extras = ["standard"] }
+scikit-learn = "^1.5.0"
+joblib = "^1.4.0"
+numpy = "^1.26.0"
+redis = "^5.0.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+httpx = "^0.27.0"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
