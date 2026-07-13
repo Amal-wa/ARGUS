@@ -184,5 +184,6 @@ ml_model_registry_table = Table(
     Column("training_window_end", DateTime(timezone=True), nullable=False),
     Column("training_samples", Integer, nullable=False),
     Column("hyperparameters", JSONB, nullable=False),
+    Column("score_distribution", JSONB, nullable=True),
     CheckConstraint("training_samples > 0", name="ck_ml_model_registry_training_samples"),
 )

@@ -176,26 +176,26 @@ services:
       context: ../services/canary-validator
       dockerfile: Dockerfile
     container_name: canary-validator
-    restart: unless-stopped
-    expose:
-      - "8002"
+    profiles: ["jobs"]
     environment:
       DATABASE_URL: postgresql://postgres:admin@postgres:5432/zt_db
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - models-volume:/models
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8002/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
     networks:
-      # Corrigé : ajout de dmz_net, même raison qu'isolation-forest.
+      # A one-shot batch job that only talks to Postgres/Redis/the shared volume
+      # has no business on the DMZ -- unlike isolation-forest (called live by the
+      # Gateway on the request path), canary-validator is invoked out-of-band by
+      # `docker compose run --rm canary-validator` and never serves traffic.
       - internal_net
-      - dmz_net
+    # One-shot job (same pattern as ml-trainer): `profiles: ["jobs"]` keeps it out
+    # of a plain `docker compose up`; no port, no healthcheck, no restart policy --
+    # it runs to completion and exits 0.
 
   ml-trainer:
     build:

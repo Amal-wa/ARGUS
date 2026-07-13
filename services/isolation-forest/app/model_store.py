@@ -32,6 +32,11 @@ def risk_score_from_anomaly_score(anomaly_score: float) -> float:
     distributions (e.g. a percentile-based mapping) -- the only guarantees made here
     are that the result is bounded in [0, 1], monotonically increasing as the sample
     becomes more anomalous, and deterministic.
+
+    MUST STAY IDENTICAL to services/canary-validator/app/score_mapping.py's copy of
+    this function -- canary comparisons are only meaningful if both services map
+    raw scores to [0, 1] the same way. See that file's comment for why it's a
+    deliberate duplication rather than a shared library.
     """
     return 1.0 / (1.0 + math.exp(anomaly_score))
 
