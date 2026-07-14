@@ -1,0 +1,15 @@
+[tool.poetry]
+name = "zt-traffic-generator"
+version = "0.1.0"
+description = "Standalone synthetic traffic generator for the Zero Trust API Gateway demo -- NOT part of the monorepo services, not containerized, run from the host."
+authors = ["Amel Ben Khalifa <amel.benkhalifa@supcom.tn>"]
+packages = [{ include = "generator" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+httpx = "^0.27.0"
+numpy = "^1.26.0"
+redis = "^5.0.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"

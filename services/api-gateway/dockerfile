@@ -26,5 +26,8 @@ RUN poetry install --no-interaction --no-ansi
 EXPOSE 8000
 
 # Actual start command is provided by docker-compose (alembic stamp head + uvicorn),
-# but provide a sensible default here too.
-CMD ["poetry", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# but provide a sensible default here too. --no-proxy-headers: see the comment
+# on the docker-compose command -- our app resolves X-Forwarded-For itself
+# (TRUSTED_PROXIES allowlist) and uvicorn's own default handling of that header
+# (trusting 127.0.0.1 out of the box) must not run ahead of it.
+CMD ["poetry", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]

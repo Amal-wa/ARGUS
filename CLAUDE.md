@@ -22,7 +22,17 @@ already wires them in for when they're built out. Don't assume code exists there
 Every HTTP request passes through a single Starlette middleware, `GatewayMiddleware`
 (`app/middleware/gateway.py`), which runs this pipeline in order:
 
-1. **IP rate limit** (`middleware/rate_limit.py`) — sliding window in Redis, checked before auth.
+1. **IP rate limit** (`middleware/rate_limit.py`) — sliding window in Redis, checked before auth. The client IP
+   itself is resolved by `resolve_client_ip` (`middleware/context.py`): `X-Forwarded-For` is honored **only**
+   when the direct peer (`request.client.host`) is in `settings.trusted_proxies` (`TRUSTED_PROXIES` env, empty by
+   default — the header is otherwise always ignored). The allowlist check is on the peer, never on anything in
+   the header itself, so a spoofed header can't make itself trusted. Standard reverse-proxy practice (RFC 7239).
+   Uvicorn is started with **`--no-proxy-headers`** (both in `docker-compose.yml`'s command and the Dockerfile's
+   default `CMD`) — uvicorn's own built-in `X-Forwarded-For` handling is enabled and trusts `127.0.0.1` *by
+   default*, and runs ahead of our app, silently rewriting `scope["client"]` before `resolve_client_ip` ever sees
+   the request (verified live: a loopback request with a spoofed header was honored until this flag was added).
+   Do not remove `--no-proxy-headers` — that would reopen exactly the spoofing bypass `TRUSTED_PROXIES` exists
+   to close.
 2. **JWT verification** (`core/security.py`, `JWTVerifier`) — tokens are Ed25519 (`EdDSA`)-signed; the public key
    is fetched from Vault's Transit engine (`core/vault.py`) and cached, with a Redis lock
    (`jwk:refresh:lock`) to coordinate key refresh on signature failure across gateway instances. Verifies

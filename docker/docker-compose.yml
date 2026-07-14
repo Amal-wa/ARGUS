@@ -115,6 +115,18 @@ services:
       - VAULT_TOKEN=dev-root-token
       - OPA_URL=http://opa:8181
       - ISOLATION_FOREST_URL=http://isolation-forest:8001
+      # Empty by default: X-Forwarded-For is ignored unless the DIRECT peer is
+      # listed here. Only add an entry when a real reverse proxy (or the
+      # traffic generator, fronted by one) sits in front of the gateway --
+      # list that proxy's own IP (e.g. the Docker bridge/host IP), never a
+      # permissive/wildcard value.
+      # 172.18.0.1 = this compose project's dmz_net bridge gateway -- the peer
+      # IP every host-originated request (curl, tools/traffic-generator/) is
+      # seen as when it reaches the gateway through the published port 8000
+      # (verified empirically; re-verify with a plain curl + a Redis
+      # `ratelimit:ip:*` scan if this network is ever recreated, since Docker
+      # can reassign the bridge subnet/gateway).
+      - TRUSTED_PROXIES=172.18.0.1
     depends_on:
       postgres:
         condition: service_healthy
@@ -130,7 +142,14 @@ services:
         condition: service_healthy
     volumes:
       - ../services/api-gateway:/app
-    command: sh -c "poetry run alembic upgrade head && poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app"
+    # --no-proxy-headers: uvicorn's OWN X-Forwarded-For handling is enabled by
+    # default and trusts 127.0.0.1 out of the box -- that silently rewrites
+    # scope["client"] before our app-level resolve_client_ip (TRUSTED_PROXIES
+    # allowlist) ever sees the request, making our allowlist meaningless
+    # whenever a caller's connection happens to appear as 127.0.0.1 (e.g. some
+    # Docker port-publishing paths). Disabling it here makes resolve_client_ip
+    # the single source of truth for the real peer.
+    command: sh -c "poetry run alembic upgrade head && poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app --no-proxy-headers"
     networks:
       - dmz_net
       - internal_net

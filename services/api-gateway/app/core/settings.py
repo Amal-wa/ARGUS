@@ -39,3 +39,6 @@ class GatewaySettings:
     refresh_token_ttl_days: int = _required_int_env("REFRESH_TOKEN_TTL_DAYS", 7)
     login_max_failed_attempts: int = _required_int_env("LOGIN_MAX_FAILED_ATTEMPTS", 5)
     login_lockout_duration_minutes: int = _required_int_env("LOGIN_LOCKOUT_DURATION_MINUTES", 15)
+    trusted_proxies: frozenset[str] = frozenset(
+        p.strip() for p in os.getenv("TRUSTED_PROXIES", "").split(",") if p.strip()
+    )

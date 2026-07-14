@@ -12,7 +12,7 @@ from app.core.errors import OpaUnavailableError
 from app.core.repositories import DocumentRepository, OrderRepository, UserRepository
 from app.core.security import JWTVerificationError, JWTVerifier, extract_bearer_token
 from app.core.settings import GatewaySettings
-from app.middleware.context import RequestContext
+from app.middleware.context import RequestContext, resolve_client_ip
 from app.middleware.jti_blacklist import check_jti_blacklist
 from app.middleware.rate_limit import enforce_ip_rate_limit, enforce_user_rate_limit
 from app.services.auth import AuthService
@@ -72,7 +72,7 @@ class GatewayMiddleware(BaseHTTPMiddleware):
             trace_id=uuid4(),
             method=request.method.upper(),
             path=request.url.path,
-            ip_address=getattr(getattr(request, "client", None), "host", "127.0.0.1"),
+            ip_address=resolve_client_ip(request, services.settings.trusted_proxies),
         )
         request.state.gateway_context = context
 
