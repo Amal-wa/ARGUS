@@ -75,6 +75,38 @@ class VaultTransitClient:
 
         return ciphertext
 
+    async def sign(self, key_name: str, payload: bytes) -> bytes:
+        return await asyncio.to_thread(self._sign_sync, key_name, payload)
+
+    def _sign_sync(self, key_name: str, payload: bytes) -> bytes:
+        endpoint = f"{self.vault_addr.rstrip('/')}/v1/transit/sign/{key_name}"
+        body = json.dumps({"input": base64.b64encode(payload).decode("ascii")}).encode("utf-8")
+        request = Request(
+            endpoint,
+            data=body,
+            headers={"X-Vault-Token": self.vault_token, "Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=10) as response:
+                response_payload = json.loads(response.read().decode("utf-8"))
+        except URLError as exc:  # pragma: no cover - network failure path.
+            raise RuntimeError("Unable to sign via Vault Transit") from exc
+
+        try:
+            signature_field = response_payload["data"]["signature"]
+        except (KeyError, TypeError) as exc:
+            raise RuntimeError("Vault response did not include a usable signature") from exc
+
+        if not isinstance(signature_field, str) or signature_field.count(":") < 2:
+            raise RuntimeError("Vault signature has an unexpected format")
+
+        _, _, sig_b64 = signature_field.split(":", 2)
+        try:
+            return base64.b64decode(sig_b64)
+        except Exception as exc:
+            raise RuntimeError("Vault signature payload is not valid base64") from exc
+
     async def decrypt(self, key_name: str, ciphertext: str) -> bytes:
         return await asyncio.to_thread(self._decrypt_sync, key_name, ciphertext)
 

@@ -64,8 +64,26 @@ users_table = Table(
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),
     Column("last_login", DateTime(timezone=True), nullable=True),
+    Column("failed_login_attempts", SmallInteger, nullable=False, server_default=text("0")),
+    Column("locked_until", DateTime(timezone=True), nullable=True),
     UniqueConstraint("email", name="uq_user_email"),
+    CheckConstraint("failed_login_attempts >= 0", name="ck_users_failed_login_attempts"),
 )
+
+refresh_tokens_table = Table(
+    "refresh_tokens",
+    metadata,
+    Column("token_hash", Text, primary_key=True),
+    Column("family_id", UUID(as_uuid=True), nullable=False),
+    Column("user_id", UUID(as_uuid=True), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False),
+    Column("issued_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    Column("used_at", DateTime(timezone=True), nullable=True),
+    Column("revoked", Boolean, nullable=False, server_default=text("FALSE")),
+)
+
+Index("idx_refresh_tokens_family_id", refresh_tokens_table.c.family_id)
+Index("idx_refresh_tokens_user_id", refresh_tokens_table.c.user_id)
 
 user_mfa_table = Table(
     "user_mfa",

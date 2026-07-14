@@ -14,12 +14,35 @@ from app.core.settings import GatewaySettings
 from app.middleware.context import RequestContext
 from app.middleware.jti_blacklist import check_jti_blacklist
 from app.middleware.rate_limit import enforce_ip_rate_limit, enforce_user_rate_limit
-from app.middleware.replay import check_replay
+from app.services.auth import AuthService
 from app.services.authorization import AuthorizationService
 from app.services.mfa_challenge import MfaChallengeService
 from app.services.mfa_enrollment import MfaEnrollmentService
 
+# Four routing tiers, in increasing order of trust required:
+#
+# 1. PUBLIC_PATHS           -> call_next immediately. No checks at all (e.g. /health).
+# 2. AUTH_PATHS             -> IP rate limit only, no JWT, no OPA. These endpoints
+#                              (/auth/login, /auth/refresh) are what ISSUES a JWT,
+#                              so they structurally cannot require one -- but an
+#                              unrated login endpoint is a brute-force target, so
+#                              IP rate limiting still applies.
+# 3. GATEWAY_INTERNAL_PATHS -> full pre-OPA pipeline (JWT verify, user rate limit,
+#                              JTI blacklist) but skip OPA authorize. These belong
+#                              to the authentication/MFA plane, not the business
+#                              plane (e.g. /mfa/enroll, /mfa/challenge/verify) --
+#                              RBAC rules like reader-can't-POST would otherwise
+#                              lock a reader out of their own step-up flow.
+# 4. Everything else        -> the full pipeline, ending in OPA authorize.
+#
+# NOTE: per-request JWT replay checking (SETNX used:jti) has been removed from
+# this pipeline. The access token is now deliberately reusable for its whole TTL
+# (see AuthService/token_service) -- single-use semantics belong on the refresh
+# token, where they are the correct security property (rotation + reuse
+# detection), not on every request. check_jti_blacklist (immediate revocation)
+# is unaffected and still runs on every authenticated request.
 PUBLIC_PATHS = {"/health"}
+AUTH_PATHS = {"/auth/login", "/auth/refresh"}
 GATEWAY_INTERNAL_PATHS = {"/mfa/enroll", "/mfa/challenge/verify"}
 
 
@@ -32,6 +55,7 @@ class GatewayServices:
     authorization_service: AuthorizationService
     mfa_challenge_service: MfaChallengeService
     mfa_enrollment_service: MfaEnrollmentService
+    auth_service: AuthService
 
 
 class GatewayMiddleware(BaseHTTPMiddleware):
@@ -56,6 +80,9 @@ class GatewayMiddleware(BaseHTTPMiddleware):
         )
         if rate_result.exceeded:
             return JSONResponse({"detail": "rate limit exceeded"}, status_code=429)
+
+        if context.path in AUTH_PATHS:
+            return await call_next(request)
 
         authorization = request.headers.get("authorization")
         token = extract_bearer_token(authorization)
@@ -96,10 +123,6 @@ class GatewayMiddleware(BaseHTTPMiddleware):
         revoked = await check_jti_blacklist(context=context, redis_client=services.redis_client, event_logger=services.event_logger)
         if revoked is not None:
             return JSONResponse({"detail": "token revoked"}, status_code=401)
-
-        replay = await check_replay(context=context, settings=services.settings, redis_client=services.redis_client, event_logger=services.event_logger)
-        if replay is not None:
-            return JSONResponse({"detail": "replay detected"}, status_code=401)
 
         if context.path in GATEWAY_INTERNAL_PATHS:
             return await call_next(request)

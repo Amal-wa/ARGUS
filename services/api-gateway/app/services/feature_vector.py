@@ -38,6 +38,13 @@ class FeatureVectorService:
             float(read_count) / max(1.0, float(read_count + write_count)),
             float(write_count) / max(1.0, float(read_count + write_count)),
             float(context.latency_ms()),
+            # Reserved/unused slots. None of these currently count JWT replays: with
+            # the reusable access token (see AuthService/token_service), per-request
+            # replay checking no longer exists, so there is nothing here to count.
+            # A `replay_detected` event now means a *consumed refresh token* was
+            # presented again -- a rarer, far stronger theft signal, emitted from
+            # the refresh flow (app/services/auth.py), not the request path. If a
+            # feature for that is ever added, it belongs in one of these slots.
             0.0,
             0.0,
             0.0,

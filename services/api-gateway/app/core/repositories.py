@@ -6,7 +6,13 @@ from uuid import UUID
 
 from sqlalchemy import case, func, insert, select, update
 
-from app.models.tables import ml_training_samples_table, opa_decision_log_table, user_mfa_table
+from app.models.tables import (
+    ml_training_samples_table,
+    opa_decision_log_table,
+    refresh_tokens_table,
+    user_mfa_table,
+    users_table,
+)
 
 
 @dataclass(slots=True)
@@ -152,5 +158,163 @@ class UserMfaRepository:
                 update(user_mfa_table)
                 .where(user_mfa_table.c.user_id == user_id)
                 .values(failed_attempts=0, locked_until=None, updated_at=func.now())
+            )
+            await session.commit()
+
+
+@dataclass(slots=True)
+class UserRecord:
+    user_id: UUID
+    email: str
+    password_hash: str
+    role: str
+    is_active: bool
+    failed_login_attempts: int
+    locked_until: datetime | None
+
+
+def _row_to_user_record(row) -> UserRecord:
+    return UserRecord(
+        user_id=row.user_id,
+        email=row.email,
+        password_hash=row.password_hash,
+        role=row.role,
+        is_active=row.is_active,
+        failed_login_attempts=row.failed_login_attempts,
+        locked_until=row.locked_until,
+    )
+
+
+_USER_COLUMNS = (
+    users_table.c.user_id,
+    users_table.c.email,
+    users_table.c.password_hash,
+    users_table.c.role,
+    users_table.c.is_active,
+    users_table.c.failed_login_attempts,
+    users_table.c.locked_until,
+)
+
+
+class UserRepository:
+    def __init__(self, session_factory):
+        self._session_factory = session_factory
+
+    async def get_by_email(self, email: str) -> UserRecord | None:
+        stmt = select(*_USER_COLUMNS).where(users_table.c.email == email)
+        async with self._session_factory() as session:
+            row = (await session.execute(stmt)).one_or_none()
+        return None if row is None else _row_to_user_record(row)
+
+    async def get_by_id(self, user_id: UUID) -> UserRecord | None:
+        stmt = select(*_USER_COLUMNS).where(users_table.c.user_id == user_id)
+        async with self._session_factory() as session:
+            row = (await session.execute(stmt)).one_or_none()
+        return None if row is None else _row_to_user_record(row)
+
+    async def record_failed_login(
+        self, user_id: UUID, *, max_attempts: int, lockout_minutes: int
+    ) -> UserRecord:
+        incremented = users_table.c.failed_login_attempts + 1
+        reached_limit = incremented >= max_attempts
+        stmt = (
+            update(users_table)
+            .where(users_table.c.user_id == user_id)
+            .values(
+                failed_login_attempts=case((reached_limit, 0), else_=incremented),
+                locked_until=case(
+                    (reached_limit, func.now() + func.make_interval(0, 0, 0, 0, 0, lockout_minutes)),
+                    else_=users_table.c.locked_until,
+                ),
+                updated_at=func.now(),
+            )
+            .returning(*_USER_COLUMNS)
+        )
+        async with self._session_factory() as session:
+            row = (await session.execute(stmt)).one()
+            await session.commit()
+        return _row_to_user_record(row)
+
+    async def reset_login_attempts(self, user_id: UUID) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                update(users_table)
+                .where(users_table.c.user_id == user_id)
+                .values(failed_login_attempts=0, locked_until=None, last_login=func.now(), updated_at=func.now())
+            )
+            await session.commit()
+
+
+@dataclass(slots=True)
+class RefreshTokenRecord:
+    token_hash: str
+    family_id: UUID
+    user_id: UUID
+    issued_at: datetime
+    expires_at: datetime
+    used_at: datetime | None
+    revoked: bool
+
+
+def _row_to_refresh_token_record(row) -> RefreshTokenRecord:
+    return RefreshTokenRecord(
+        token_hash=row.token_hash,
+        family_id=row.family_id,
+        user_id=row.user_id,
+        issued_at=row.issued_at,
+        expires_at=row.expires_at,
+        used_at=row.used_at,
+        revoked=row.revoked,
+    )
+
+
+class RefreshTokenRepository:
+    def __init__(self, session_factory):
+        self._session_factory = session_factory
+
+    async def create(self, token_hash: str, family_id: UUID, user_id: UUID, expires_at: datetime) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                insert(refresh_tokens_table).values(
+                    token_hash=token_hash,
+                    family_id=family_id,
+                    user_id=user_id,
+                    expires_at=expires_at,
+                )
+            )
+            await session.commit()
+
+    async def get(self, token_hash: str) -> RefreshTokenRecord | None:
+        stmt = select(refresh_tokens_table).where(refresh_tokens_table.c.token_hash == token_hash)
+        async with self._session_factory() as session:
+            row = (await session.execute(stmt)).one_or_none()
+        return None if row is None else _row_to_refresh_token_record(row)
+
+    async def consume(self, token_hash: str) -> bool:
+        # Atomic: only the caller whose UPDATE actually matched a still-unused,
+        # non-revoked, non-expired row gets a RETURNING row back. Two concurrent
+        # refreshes with the same token can never both succeed.
+        stmt = (
+            update(refresh_tokens_table)
+            .where(
+                refresh_tokens_table.c.token_hash == token_hash,
+                refresh_tokens_table.c.used_at.is_(None),
+                refresh_tokens_table.c.revoked.is_(False),
+                refresh_tokens_table.c.expires_at > func.now(),
+            )
+            .values(used_at=func.now())
+            .returning(refresh_tokens_table.c.token_hash)
+        )
+        async with self._session_factory() as session:
+            row = (await session.execute(stmt)).one_or_none()
+            await session.commit()
+        return row is not None
+
+    async def revoke_family(self, family_id: UUID) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                update(refresh_tokens_table)
+                .where(refresh_tokens_table.c.family_id == family_id)
+                .values(revoked=True)
             )
             await session.commit()

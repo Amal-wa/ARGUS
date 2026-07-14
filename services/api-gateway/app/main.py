@@ -12,14 +12,22 @@ from app.core.opa_client import OpaClient
 from app.core.redis_client import create_redis_client
 from app.core.security import JWTVerifier
 from app.core.settings import GatewaySettings
-from app.core.repositories import AuthorizationRepository, UserMfaRepository
+from app.core.repositories import (
+    AuthorizationRepository,
+    RefreshTokenRepository,
+    UserMfaRepository,
+    UserRepository,
+)
 from app.core.vault import VaultTransitClient
 from app.middleware.gateway import GatewayMiddleware, GatewayServices
+from app.routers.auth import router as auth_router
 from app.routers.mfa import router as mfa_router
+from app.services.auth import AuthService
 from app.services.authorization import AuthorizationService
 from app.services.feature_vector import FeatureVectorService
 from app.services.mfa_challenge import MfaChallengeService
 from app.services.mfa_enrollment import MfaEnrollmentService
+from app.services.token_service import TokenService
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +74,15 @@ def build_app(
         enrollment=mfa_enrollment_service,
         settings=settings,
     )
+    user_repository = UserRepository(session_factory)
+    refresh_token_repository = RefreshTokenRepository(session_factory)
+    token_service = TokenService(vault_client=vault_client, settings=settings)
+    auth_service = AuthService(
+        user_repository=user_repository,
+        refresh_token_repository=refresh_token_repository,
+        token_service=token_service,
+        settings=settings,
+    )
     app.state.gateway_services = GatewayServices(
         settings=settings,
         security=security,
@@ -74,9 +91,11 @@ def build_app(
         authorization_service=authorization_service,
         mfa_challenge_service=mfa_challenge_service,
         mfa_enrollment_service=mfa_enrollment_service,
+        auth_service=auth_service,
     )
     app.add_middleware(GatewayMiddleware)
     app.include_router(mfa_router)
+    app.include_router(auth_router)
 
     @app.on_event("startup")
     async def _startup() -> None:
