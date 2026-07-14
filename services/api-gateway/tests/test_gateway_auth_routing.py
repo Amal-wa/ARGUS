@@ -99,6 +99,9 @@ def _services(redis, recorder, authorization_service, private_key) -> GatewaySer
         mfa_challenge_service=None,
         mfa_enrollment_service=None,
         auth_service=None,
+        user_repository=None,
+        document_repository=None,
+        order_repository=None,
     )
 
 

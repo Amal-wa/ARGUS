@@ -12,6 +12,7 @@ from sqlalchemy import (
     Index,
     Integer,
     MetaData,
+    Numeric,
     SmallInteger,
     String,
     Table,
@@ -205,3 +206,32 @@ ml_model_registry_table = Table(
     Column("score_distribution", JSONB, nullable=True),
     CheckConstraint("training_samples > 0", name="ck_ml_model_registry_training_samples"),
 )
+
+documents_table = Table(
+    "documents",
+    metadata,
+    Column("document_id", UUID(as_uuid=True), primary_key=True),
+    Column("owner_id", UUID(as_uuid=True), ForeignKey("users.user_id", ondelete="RESTRICT"), nullable=False),
+    Column("title", String(length=255), nullable=False),
+    Column("content", Text, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),
+    Column("is_deleted", Boolean, nullable=False, server_default=text("FALSE")),
+)
+
+Index("idx_documents_owner_id", documents_table.c.owner_id)
+
+orders_table = Table(
+    "orders",
+    metadata,
+    Column("order_id", UUID(as_uuid=True), primary_key=True),
+    Column("owner_id", UUID(as_uuid=True), ForeignKey("users.user_id", ondelete="RESTRICT"), nullable=False),
+    Column("status", String(length=50), nullable=False, server_default=text("'pending'")),
+    Column("amount", Numeric(12, 2), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),
+    Column("is_deleted", Boolean, nullable=False, server_default=text("FALSE")),
+    CheckConstraint("amount >= 0", name="ck_orders_amount"),
+)
+
+Index("idx_orders_owner_id", orders_table.c.owner_id)

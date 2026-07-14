@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from uuid import UUID
+from decimal import Decimal
+from uuid import UUID, uuid4
 
 from sqlalchemy import case, func, insert, select, update
 
 from app.models.tables import (
+    documents_table,
     ml_training_samples_table,
     opa_decision_log_table,
+    orders_table,
     refresh_tokens_table,
     user_mfa_table,
     users_table,
@@ -244,6 +247,54 @@ class UserRepository:
             )
             await session.commit()
 
+    async def list_all(self, *, limit: int = 50, offset: int = 0) -> list[UserRecord]:
+        stmt = select(*_USER_COLUMNS).order_by(users_table.c.email).limit(limit).offset(offset)
+        async with self._session_factory() as session:
+            rows = (await session.execute(stmt)).all()
+        return [_row_to_user_record(row) for row in rows]
+
+    async def create_user(self, email: str, password_hash: str, role: str) -> UserRecord:
+        user_id = uuid4()
+        async with self._session_factory() as session:
+            await session.execute(
+                insert(users_table).values(
+                    user_id=user_id,
+                    email=email,
+                    password_hash=password_hash,
+                    role=role,
+                )
+            )
+            await session.commit()
+        return await self.get_by_id(user_id)
+
+    async def update_user(
+        self, user_id: UUID, *, email: str | None = None, role: str | None = None, is_active: bool | None = None
+    ) -> UserRecord | None:
+        values = {"updated_at": func.now()}
+        if email is not None:
+            values["email"] = email
+        if role is not None:
+            values["role"] = role
+        if is_active is not None:
+            values["is_active"] = is_active
+
+        async with self._session_factory() as session:
+            await session.execute(update(users_table).where(users_table.c.user_id == user_id).values(**values))
+            await session.commit()
+        return await self.get_by_id(user_id)
+
+    async def soft_delete(self, user_id: UUID) -> bool:
+        # Never a hard DELETE -- accounts the traffic generator (or real users)
+        # are actively using must never disappear out from under them.
+        async with self._session_factory() as session:
+            result = await session.execute(
+                update(users_table)
+                .where(users_table.c.user_id == user_id)
+                .values(is_active=False, updated_at=func.now())
+            )
+            await session.commit()
+        return result.rowcount > 0
+
 
 @dataclass(slots=True)
 class RefreshTokenRecord:
@@ -318,3 +369,185 @@ class RefreshTokenRepository:
                 .values(revoked=True)
             )
             await session.commit()
+
+
+@dataclass(slots=True)
+class DocumentRecord:
+    document_id: UUID
+    owner_id: UUID
+    title: str
+    content: str | None
+    created_at: datetime
+    updated_at: datetime
+    is_deleted: bool
+
+
+def _row_to_document_record(row) -> DocumentRecord:
+    return DocumentRecord(
+        document_id=row.document_id,
+        owner_id=row.owner_id,
+        title=row.title,
+        content=row.content,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        is_deleted=row.is_deleted,
+    )
+
+
+class DocumentRepository:
+    def __init__(self, session_factory):
+        self._session_factory = session_factory
+
+    async def list_all(self, *, limit: int = 50, offset: int = 0) -> list[DocumentRecord]:
+        stmt = (
+            select(documents_table)
+            .where(documents_table.c.is_deleted.is_(False))
+            .order_by(documents_table.c.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        async with self._session_factory() as session:
+            rows = (await session.execute(stmt)).all()
+        return [_row_to_document_record(row) for row in rows]
+
+    async def get(self, document_id: UUID) -> DocumentRecord | None:
+        stmt = select(documents_table).where(
+            documents_table.c.document_id == document_id,
+            documents_table.c.is_deleted.is_(False),
+        )
+        async with self._session_factory() as session:
+            row = (await session.execute(stmt)).one_or_none()
+        return None if row is None else _row_to_document_record(row)
+
+    async def create(self, owner_id: UUID, title: str, content: str | None) -> DocumentRecord:
+        document_id = uuid4()
+        async with self._session_factory() as session:
+            await session.execute(
+                insert(documents_table).values(
+                    document_id=document_id,
+                    owner_id=owner_id,
+                    title=title,
+                    content=content,
+                )
+            )
+            await session.commit()
+        return await self.get(document_id)
+
+    async def update(
+        self, document_id: UUID, *, title: str | None = None, content: str | None = None
+    ) -> DocumentRecord | None:
+        values = {"updated_at": func.now()}
+        if title is not None:
+            values["title"] = title
+        if content is not None:
+            values["content"] = content
+
+        async with self._session_factory() as session:
+            await session.execute(
+                update(documents_table)
+                .where(documents_table.c.document_id == document_id, documents_table.c.is_deleted.is_(False))
+                .values(**values)
+            )
+            await session.commit()
+        return await self.get(document_id)
+
+    async def soft_delete(self, document_id: UUID) -> bool:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                update(documents_table)
+                .where(documents_table.c.document_id == document_id, documents_table.c.is_deleted.is_(False))
+                .values(is_deleted=True, updated_at=func.now())
+            )
+            await session.commit()
+        return result.rowcount > 0
+
+
+@dataclass(slots=True)
+class OrderRecord:
+    order_id: UUID
+    owner_id: UUID
+    status: str
+    amount: Decimal
+    created_at: datetime
+    updated_at: datetime
+    is_deleted: bool
+
+
+def _row_to_order_record(row) -> OrderRecord:
+    return OrderRecord(
+        order_id=row.order_id,
+        owner_id=row.owner_id,
+        status=row.status,
+        amount=row.amount,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        is_deleted=row.is_deleted,
+    )
+
+
+class OrderRepository:
+    def __init__(self, session_factory):
+        self._session_factory = session_factory
+
+    async def list_all(self, *, limit: int = 50, offset: int = 0) -> list[OrderRecord]:
+        stmt = (
+            select(orders_table)
+            .where(orders_table.c.is_deleted.is_(False))
+            .order_by(orders_table.c.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        async with self._session_factory() as session:
+            rows = (await session.execute(stmt)).all()
+        return [_row_to_order_record(row) for row in rows]
+
+    async def get(self, order_id: UUID) -> OrderRecord | None:
+        stmt = select(orders_table).where(
+            orders_table.c.order_id == order_id,
+            orders_table.c.is_deleted.is_(False),
+        )
+        async with self._session_factory() as session:
+            row = (await session.execute(stmt)).one_or_none()
+        return None if row is None else _row_to_order_record(row)
+
+    async def create(self, owner_id: UUID, status: str, amount: Decimal) -> OrderRecord:
+        order_id = uuid4()
+        async with self._session_factory() as session:
+            await session.execute(
+                insert(orders_table).values(
+                    order_id=order_id,
+                    owner_id=owner_id,
+                    status=status,
+                    amount=amount,
+                )
+            )
+            await session.commit()
+        return await self.get(order_id)
+
+    async def update(
+        self, order_id: UUID, *, status: str | None = None, amount: Decimal | None = None
+    ) -> OrderRecord | None:
+        values = {"updated_at": func.now()}
+        if status is not None:
+            values["status"] = status
+        if amount is not None:
+            values["amount"] = amount
+
+        async with self._session_factory() as session:
+            await session.execute(
+                update(orders_table)
+                .where(orders_table.c.order_id == order_id, orders_table.c.is_deleted.is_(False))
+                .values(**values)
+            )
+            await session.commit()
+        return await self.get(order_id)
+
+    async def soft_delete(self, order_id: UUID) -> bool:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                update(orders_table)
+                .where(orders_table.c.order_id == order_id, orders_table.c.is_deleted.is_(False))
+                .values(is_deleted=True, updated_at=func.now())
+            )
+            await session.commit()
+        return result.rowcount > 0

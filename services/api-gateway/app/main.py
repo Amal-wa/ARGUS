@@ -14,6 +14,8 @@ from app.core.security import JWTVerifier
 from app.core.settings import GatewaySettings
 from app.core.repositories import (
     AuthorizationRepository,
+    DocumentRepository,
+    OrderRepository,
     RefreshTokenRepository,
     UserMfaRepository,
     UserRepository,
@@ -21,7 +23,10 @@ from app.core.repositories import (
 from app.core.vault import VaultTransitClient
 from app.middleware.gateway import GatewayMiddleware, GatewayServices
 from app.routers.auth import router as auth_router
+from app.routers.documents import router as documents_router
 from app.routers.mfa import router as mfa_router
+from app.routers.orders import router as orders_router
+from app.routers.users import router as users_router
 from app.services.auth import AuthService
 from app.services.authorization import AuthorizationService
 from app.services.feature_vector import FeatureVectorService
@@ -83,6 +88,8 @@ def build_app(
         token_service=token_service,
         settings=settings,
     )
+    document_repository = DocumentRepository(session_factory)
+    order_repository = OrderRepository(session_factory)
     app.state.gateway_services = GatewayServices(
         settings=settings,
         security=security,
@@ -92,10 +99,16 @@ def build_app(
         mfa_challenge_service=mfa_challenge_service,
         mfa_enrollment_service=mfa_enrollment_service,
         auth_service=auth_service,
+        user_repository=user_repository,
+        document_repository=document_repository,
+        order_repository=order_repository,
     )
     app.add_middleware(GatewayMiddleware)
     app.include_router(mfa_router)
     app.include_router(auth_router)
+    app.include_router(documents_router)
+    app.include_router(orders_router)
+    app.include_router(users_router)
 
     @app.on_event("startup")
     async def _startup() -> None:
