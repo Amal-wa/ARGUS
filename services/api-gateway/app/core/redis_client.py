@@ -7,6 +7,8 @@ from typing import Any, Protocol
 
 
 class RedisLike(Protocol):
+    async def ping(self) -> bool: ...
+
     async def incr(self, key: str) -> int: ...
 
     async def expire(self, key: str, seconds: int) -> bool: ...
@@ -51,6 +53,9 @@ class InMemoryRedis:
             self._strings.pop(key, None)
             self._sets.pop(key, None)
             self._sorted_sets.pop(key, None)
+
+    async def ping(self) -> bool:
+        return True
 
     async def incr(self, key: str) -> int:
         self._purge_expired(key)

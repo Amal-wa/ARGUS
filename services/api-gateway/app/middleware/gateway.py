@@ -9,7 +9,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.events import EventPayload
 from app.core.errors import OpaUnavailableError
-from app.core.repositories import DocumentRepository, OrderRepository, UserRepository
+from app.core.repositories import DocumentRepository, MonitoringRepository, OrderRepository, UserRepository
 from app.core.security import JWTVerificationError, JWTVerifier, extract_bearer_token
 from app.core.settings import GatewaySettings
 from app.middleware.context import RequestContext, resolve_client_ip
@@ -69,6 +69,7 @@ class GatewayServices:
     user_repository: UserRepository
     document_repository: DocumentRepository
     order_repository: OrderRepository
+    monitoring_repository: MonitoringRepository
 
 
 class GatewayMiddleware(BaseHTTPMiddleware):

@@ -102,6 +102,7 @@ def _services(redis, recorder, authorization_service, private_key) -> GatewaySer
         user_repository=None,
         document_repository=None,
         order_repository=None,
+        monitoring_repository=None,
     )
 
 

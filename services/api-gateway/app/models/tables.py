@@ -143,6 +143,10 @@ opa_decision_log_table = Table(
     CheckConstraint("risk_score >= 0.0 AND risk_score <= 1.0", name="ck_opa_decision_log_risk_score"),
 )
 
+Index("idx_opa_decision_log_timestamp", opa_decision_log_table.c.timestamp)
+Index("idx_opa_decision_log_user_timestamp", opa_decision_log_table.c.user_id, opa_decision_log_table.c.timestamp)
+Index("idx_opa_decision_log_decision_timestamp", opa_decision_log_table.c.decision, opa_decision_log_table.c.timestamp)
+
 event_anomaly_table = Table(
     "event_anomaly",
     metadata,

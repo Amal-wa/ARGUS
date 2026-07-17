@@ -120,6 +120,7 @@ def test_method_override_header_does_not_change_the_authorized_action():
             user_repository=None,
             document_repository=None,
             order_repository=None,
+            monitoring_repository=None,
         )
         app = FakeApp(services)
         token = _make_token(private_key)

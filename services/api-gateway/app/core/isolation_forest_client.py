@@ -15,6 +15,20 @@ class IsolationForestClient:
     base_url: str
     score_path: str
 
+    async def health(self) -> bool:
+        return await asyncio.to_thread(self._health_sync)
+
+    def _health_sync(self) -> bool:
+        endpoint = f"{self.base_url.rstrip('/')}/health"
+        try:
+            with urlopen(Request(endpoint), timeout=5) as response:
+                if not (200 <= response.status < 300):
+                    return False
+                payload = json.loads(response.read().decode("utf-8"))
+        except (URLError, TimeoutError, json.JSONDecodeError):
+            return False
+        return payload.get("status") == "ok"
+
     async def score(self, feature_vector: list[float]) -> RiskScoreResult:
         return await asyncio.to_thread(self._score_sync, feature_vector)
 

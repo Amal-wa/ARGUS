@@ -16,6 +16,17 @@ class OpaClient:
     decision_path: str
     timeout_seconds: float = 3.0
 
+    async def health(self) -> bool:
+        return await asyncio.to_thread(self._health_sync)
+
+    def _health_sync(self) -> bool:
+        endpoint = f"{self.base_url.rstrip('/')}/health"
+        try:
+            with urlopen(Request(endpoint), timeout=self.timeout_seconds) as response:
+                return 200 <= response.status < 300
+        except (HTTPError, URLError, TimeoutError):
+            return False
+
     async def decide(self, payload: OpaPolicyInput) -> OpaDecisionResult:
         return await asyncio.to_thread(self._decide_sync, payload)
 

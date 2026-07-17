@@ -5,10 +5,13 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from sqlalchemy import case, func, insert, select, update
+from sqlalchemy import case, func, insert, select, text, update
 
 from app.models.tables import (
     documents_table,
+    event_anomaly_table,
+    events_table,
+    ml_model_registry_table,
     ml_training_samples_table,
     opa_decision_log_table,
     orders_table,
@@ -551,3 +554,418 @@ class OrderRepository:
             )
             await session.commit()
         return result.rowcount > 0
+
+
+# --- Monitoring (read-only, admin dashboard) -------------------------------
+#
+# GET-only queries backing app/routers/monitoring.py. opa_decision_log is the
+# append-only decision audit trail (see CLAUDE.md) -- nothing here writes to
+# it. Every query is bounded (LIMIT/pagination); the table grows without
+# bound, and an unbounded SELECT here would be a real footgun.
+
+# Internal safety cap for /monitoring/risk-timeline -- the endpoint is
+# windowed by time, not by row count, so this bounds worst case (a very wide
+# window on a very busy system) without being an exposed, tunable knob.
+MAX_RISK_TIMELINE_POINTS = 2000
+
+
+@dataclass(slots=True)
+class DecisionStats:
+    total_decisions: int
+    allow: int
+    deny: int
+    step_up: int
+    active_users: int
+    distinct_ips: int
+
+
+@dataclass(slots=True)
+class DecisionLogRow:
+    trace_id: UUID
+    created_at: datetime
+    user_id: UUID
+    user_email: str | None
+    resource: str
+    action: str
+    decision: str
+    policy_name: str
+    risk_score: float | None
+    model_version: str | None
+    ip_address: str
+
+
+@dataclass(slots=True)
+class RiskTimelinePoint:
+    created_at: datetime
+    user_email: str | None
+    risk_score: float | None
+
+
+@dataclass(slots=True)
+class AlertRow:
+    type: str  # "step_up" | "anomaly"
+    created_at: datetime
+    user_email: str | None
+    resource: str | None
+    risk_score: float | None
+    trace_id: UUID | None
+
+
+@dataclass(slots=True)
+class ModelRegistryRow:
+    model_version: str
+    created_at: datetime
+    training_samples: int
+    score_distribution: dict | None
+
+
+@dataclass(slots=True)
+class DecisionAuditRow:
+    id: int
+    trace_id: UUID
+    created_at: datetime
+    user_id: UUID
+    user_email: str | None
+    role: str
+    resource: str
+    action: str
+    ip_address: str
+    risk_score: float | None
+    model_version: str | None
+    is_anomaly: str
+    decision: str
+    policy_name: str
+    reason: str | None
+    latency_ms: int
+
+
+@dataclass(slots=True)
+class EventAuditRow:
+    id: int
+    trace_id: UUID
+    created_at: datetime
+    user_id: UUID | None
+    ip_address: str
+    http_method: str
+    request_path: str
+    latency_ms: int
+    http_status: int
+    error_code: str | None
+    error_message: str | None
+    event_type: str
+
+
+@dataclass(slots=True)
+class AuditPage:
+    rows: list
+    total: int
+
+
+def _window_since(window_minutes: int):
+    # func.make_interval mirrors the lockout-window pattern already used in
+    # UserMfaRepository/UserRepository -- avoids a raw string-interpolated
+    # interval while still pushing the arithmetic to Postgres.
+    return func.now() - func.make_interval(0, 0, 0, 0, 0, window_minutes)
+
+
+class MonitoringRepository:
+    def __init__(self, session_factory):
+        self._session_factory = session_factory
+
+    async def get_stats(self, window_minutes: int) -> DecisionStats:
+        since = _window_since(window_minutes)
+        by_decision_stmt = (
+            select(opa_decision_log_table.c.decision, func.count())
+            .where(opa_decision_log_table.c.timestamp >= since)
+            .group_by(opa_decision_log_table.c.decision)
+        )
+        aggregate_stmt = select(
+            func.count(func.distinct(opa_decision_log_table.c.user_id)),
+            func.count(func.distinct(opa_decision_log_table.c.ip_address)),
+        ).where(opa_decision_log_table.c.timestamp >= since)
+
+        async with self._session_factory() as session:
+            by_decision = (await session.execute(by_decision_stmt)).all()
+            active_users, distinct_ips = (await session.execute(aggregate_stmt)).one()
+
+        counts = {decision: count for decision, count in by_decision}
+        allow = counts.get("allow", 0)
+        deny = counts.get("deny", 0)
+        step_up = counts.get("step_up", 0)
+        return DecisionStats(
+            total_decisions=allow + deny + step_up,
+            allow=allow,
+            deny=deny,
+            step_up=step_up,
+            active_users=active_users,
+            distinct_ips=distinct_ips,
+        )
+
+    async def list_decisions(
+        self, *, limit: int, since: datetime | None, user_email: str | None
+    ) -> list[DecisionLogRow]:
+        join = opa_decision_log_table.outerjoin(users_table, opa_decision_log_table.c.user_id == users_table.c.user_id)
+        stmt = (
+            select(
+                opa_decision_log_table.c.trace_id,
+                opa_decision_log_table.c.timestamp,
+                opa_decision_log_table.c.user_id,
+                users_table.c.email,
+                opa_decision_log_table.c.resource,
+                opa_decision_log_table.c.action,
+                opa_decision_log_table.c.decision,
+                opa_decision_log_table.c.policy_name,
+                opa_decision_log_table.c.risk_score,
+                opa_decision_log_table.c.model_version,
+                opa_decision_log_table.c.ip_address,
+            )
+            .select_from(join)
+            .order_by(opa_decision_log_table.c.timestamp.desc())
+            .limit(limit)
+        )
+        if since is not None:
+            stmt = stmt.where(opa_decision_log_table.c.timestamp > since)
+        if user_email is not None:
+            stmt = stmt.where(users_table.c.email == user_email)
+
+        async with self._session_factory() as session:
+            rows = (await session.execute(stmt)).all()
+
+        return [
+            DecisionLogRow(
+                trace_id=row.trace_id,
+                created_at=row.timestamp,
+                user_id=row.user_id,
+                user_email=row.email,
+                resource=row.resource,
+                action=row.action,
+                decision=row.decision,
+                policy_name=row.policy_name,
+                risk_score=row.risk_score,
+                model_version=row.model_version,
+                ip_address=str(row.ip_address),
+            )
+            for row in rows
+        ]
+
+    async def get_risk_timeline(self, *, user_email: str | None, window_minutes: int) -> list[RiskTimelinePoint]:
+        join = opa_decision_log_table.outerjoin(users_table, opa_decision_log_table.c.user_id == users_table.c.user_id)
+        stmt = (
+            select(opa_decision_log_table.c.timestamp, users_table.c.email, opa_decision_log_table.c.risk_score)
+            .select_from(join)
+            .where(opa_decision_log_table.c.timestamp >= _window_since(window_minutes))
+            .order_by(opa_decision_log_table.c.timestamp.asc())
+            .limit(MAX_RISK_TIMELINE_POINTS)
+        )
+        if user_email is not None:
+            stmt = stmt.where(users_table.c.email == user_email)
+
+        async with self._session_factory() as session:
+            rows = (await session.execute(stmt)).all()
+
+        return [RiskTimelinePoint(created_at=row.timestamp, user_email=row.email, risk_score=row.risk_score) for row in rows]
+
+    async def get_alerts(self, *, limit: int) -> list[AlertRow]:
+        step_up_join = opa_decision_log_table.outerjoin(
+            users_table, opa_decision_log_table.c.user_id == users_table.c.user_id
+        )
+        step_up_stmt = (
+            select(
+                opa_decision_log_table.c.trace_id,
+                opa_decision_log_table.c.timestamp,
+                users_table.c.email,
+                opa_decision_log_table.c.resource,
+                opa_decision_log_table.c.risk_score,
+            )
+            .select_from(step_up_join)
+            .where(opa_decision_log_table.c.decision == "step_up")
+            .order_by(opa_decision_log_table.c.timestamp.desc())
+            .limit(limit)
+        )
+
+        anomaly_join = event_anomaly_table.join(
+            opa_decision_log_table, event_anomaly_table.c.id_log == opa_decision_log_table.c.id
+        ).outerjoin(users_table, opa_decision_log_table.c.user_id == users_table.c.user_id)
+        anomaly_stmt = (
+            select(
+                opa_decision_log_table.c.trace_id,
+                event_anomaly_table.c.timestamp,
+                users_table.c.email,
+                opa_decision_log_table.c.resource,
+                event_anomaly_table.c.risk_score,
+            )
+            .select_from(anomaly_join)
+            .order_by(event_anomaly_table.c.timestamp.desc())
+            .limit(limit)
+        )
+
+        async with self._session_factory() as session:
+            step_up_rows = (await session.execute(step_up_stmt)).all()
+            anomaly_rows = (await session.execute(anomaly_stmt)).all()
+
+        alerts = [
+            AlertRow(
+                type="step_up", created_at=row.timestamp, user_email=row.email, resource=row.resource,
+                risk_score=row.risk_score, trace_id=row.trace_id,
+            )
+            for row in step_up_rows
+        ] + [
+            AlertRow(
+                type="anomaly", created_at=row.timestamp, user_email=row.email, resource=row.resource,
+                risk_score=row.risk_score, trace_id=row.trace_id,
+            )
+            for row in anomaly_rows
+        ]
+        alerts.sort(key=lambda alert: alert.created_at, reverse=True)
+        return alerts[:limit]
+
+    async def get_model_registry_row(self, version: str) -> ModelRegistryRow | None:
+        stmt = select(
+            ml_model_registry_table.c.model_version,
+            ml_model_registry_table.c.created_at,
+            ml_model_registry_table.c.training_samples,
+            ml_model_registry_table.c.score_distribution,
+        ).where(ml_model_registry_table.c.model_version == version)
+        async with self._session_factory() as session:
+            row = (await session.execute(stmt)).one_or_none()
+        if row is None:
+            return None
+        return ModelRegistryRow(
+            model_version=row.model_version,
+            created_at=row.created_at,
+            training_samples=row.training_samples,
+            score_distribution=row.score_distribution,
+        )
+
+    async def ping_database(self) -> None:
+        async with self._session_factory() as session:
+            await session.execute(text("SELECT 1"))
+
+    async def get_decision_audit_page(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        user_email: str | None,
+        decision: str | None,
+        from_ts: datetime | None,
+        to_ts: datetime | None,
+    ) -> AuditPage:
+        join = opa_decision_log_table.outerjoin(users_table, opa_decision_log_table.c.user_id == users_table.c.user_id)
+
+        conditions = []
+        if user_email is not None:
+            conditions.append(users_table.c.email == user_email)
+        if decision is not None:
+            conditions.append(opa_decision_log_table.c.decision == decision)
+        if from_ts is not None:
+            conditions.append(opa_decision_log_table.c.timestamp >= from_ts)
+        if to_ts is not None:
+            conditions.append(opa_decision_log_table.c.timestamp <= to_ts)
+
+        count_stmt = select(func.count()).select_from(join)
+        rows_stmt = select(
+            opa_decision_log_table.c.id,
+            opa_decision_log_table.c.trace_id,
+            opa_decision_log_table.c.timestamp,
+            opa_decision_log_table.c.user_id,
+            users_table.c.email,
+            opa_decision_log_table.c.role,
+            opa_decision_log_table.c.resource,
+            opa_decision_log_table.c.action,
+            opa_decision_log_table.c.ip_address,
+            opa_decision_log_table.c.risk_score,
+            opa_decision_log_table.c.model_version,
+            opa_decision_log_table.c.is_anomaly,
+            opa_decision_log_table.c.decision,
+            opa_decision_log_table.c.policy_name,
+            opa_decision_log_table.c.reason,
+            opa_decision_log_table.c.latency_ms,
+        ).select_from(join)
+        for condition in conditions:
+            count_stmt = count_stmt.where(condition)
+            rows_stmt = rows_stmt.where(condition)
+        rows_stmt = (
+            rows_stmt.order_by(opa_decision_log_table.c.timestamp.desc())
+            .limit(page_size)
+            .offset((page - 1) * page_size)
+        )
+
+        async with self._session_factory() as session:
+            total = (await session.execute(count_stmt)).scalar_one()
+            rows = (await session.execute(rows_stmt)).all()
+
+        return AuditPage(
+            rows=[
+                DecisionAuditRow(
+                    id=row.id, trace_id=row.trace_id, created_at=row.timestamp, user_id=row.user_id,
+                    user_email=row.email, role=row.role, resource=row.resource, action=row.action,
+                    ip_address=str(row.ip_address), risk_score=row.risk_score, model_version=row.model_version,
+                    is_anomaly=row.is_anomaly, decision=row.decision, policy_name=row.policy_name,
+                    reason=row.reason, latency_ms=row.latency_ms,
+                )
+                for row in rows
+            ],
+            total=total,
+        )
+
+    async def get_event_audit_page(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        user_email: str | None,
+        event_type: str | None,
+        from_ts: datetime | None,
+        to_ts: datetime | None,
+    ) -> AuditPage:
+        join = events_table.outerjoin(users_table, events_table.c.user_id == users_table.c.user_id)
+
+        conditions = []
+        if user_email is not None:
+            conditions.append(users_table.c.email == user_email)
+        if event_type is not None:
+            conditions.append(events_table.c.event_type == event_type)
+        if from_ts is not None:
+            conditions.append(events_table.c.timestamp >= from_ts)
+        if to_ts is not None:
+            conditions.append(events_table.c.timestamp <= to_ts)
+
+        count_stmt = select(func.count()).select_from(join)
+        rows_stmt = select(
+            events_table.c.id,
+            events_table.c.trace_id,
+            events_table.c.timestamp,
+            events_table.c.user_id,
+            events_table.c.ip_address,
+            events_table.c.http_method,
+            events_table.c.request_path,
+            events_table.c.latency_ms,
+            events_table.c.http_status,
+            events_table.c.error_code,
+            events_table.c.error_message,
+            events_table.c.event_type,
+        ).select_from(join)
+        for condition in conditions:
+            count_stmt = count_stmt.where(condition)
+            rows_stmt = rows_stmt.where(condition)
+        rows_stmt = (
+            rows_stmt.order_by(events_table.c.timestamp.desc()).limit(page_size).offset((page - 1) * page_size)
+        )
+
+        async with self._session_factory() as session:
+            total = (await session.execute(count_stmt)).scalar_one()
+            rows = (await session.execute(rows_stmt)).all()
+
+        return AuditPage(
+            rows=[
+                EventAuditRow(
+                    id=row.id, trace_id=row.trace_id, created_at=row.timestamp, user_id=row.user_id,
+                    ip_address=str(row.ip_address), http_method=row.http_method, request_path=row.request_path,
+                    latency_ms=row.latency_ms, http_status=row.http_status, error_code=row.error_code,
+                    error_message=row.error_message, event_type=row.event_type,
+                )
+                for row in rows
+            ],
+            total=total,
+        )

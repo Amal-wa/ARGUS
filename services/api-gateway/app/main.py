@@ -15,6 +15,7 @@ from app.core.settings import GatewaySettings
 from app.core.repositories import (
     AuthorizationRepository,
     DocumentRepository,
+    MonitoringRepository,
     OrderRepository,
     RefreshTokenRepository,
     UserMfaRepository,
@@ -25,6 +26,7 @@ from app.middleware.gateway import GatewayMiddleware, GatewayServices
 from app.routers.auth import router as auth_router
 from app.routers.documents import router as documents_router
 from app.routers.mfa import router as mfa_router
+from app.routers.monitoring import router as monitoring_router
 from app.routers.orders import router as orders_router
 from app.routers.users import router as users_router
 from app.services.auth import AuthService
@@ -92,6 +94,7 @@ def build_app(
     )
     document_repository = DocumentRepository(session_factory)
     order_repository = OrderRepository(session_factory)
+    monitoring_repository = MonitoringRepository(session_factory)
     app.state.gateway_services = GatewayServices(
         settings=settings,
         security=security,
@@ -104,6 +107,7 @@ def build_app(
         user_repository=user_repository,
         document_repository=document_repository,
         order_repository=order_repository,
+        monitoring_repository=monitoring_repository,
     )
     app.add_middleware(GatewayMiddleware)
     app.include_router(mfa_router)
@@ -111,6 +115,7 @@ def build_app(
     app.include_router(documents_router)
     app.include_router(orders_router)
     app.include_router(users_router)
+    app.include_router(monitoring_router)
 
     @app.on_event("startup")
     async def _startup() -> None:

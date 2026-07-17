@@ -99,3 +99,51 @@ test_admin_delete_documents_allowed if {
         "resource": {"http_method": "DELETE", "route": "/documents/{document_id}", "action": "delete"},
     }
 }
+
+# /monitoring/* is admin-only for every action, same as /users -- readers and
+# editors must never reach the security dashboard's decision feed, risk
+# timeline, or audit log, even though every route under it is a GET (a
+# "read" action that the general rule below would otherwise grant to
+# reader/editor too).
+
+test_admin_get_monitoring_stats_allowed if {
+    rbac.allow with input as {
+        "identity": {"subject": "u1", "role": "admin"},
+        "resource": {"http_method": "GET", "route": "/monitoring/stats", "action": "read"},
+    }
+}
+
+test_admin_get_monitoring_audit_allowed if {
+    rbac.allow with input as {
+        "identity": {"subject": "u1", "role": "admin"},
+        "resource": {"http_method": "GET", "route": "/monitoring/audit", "action": "read"},
+    }
+}
+
+test_reader_get_monitoring_stats_denied if {
+    not rbac.allow with input as {
+        "identity": {"subject": "u1", "role": "reader"},
+        "resource": {"http_method": "GET", "route": "/monitoring/stats", "action": "read"},
+    }
+}
+
+test_editor_get_monitoring_stats_denied if {
+    not rbac.allow with input as {
+        "identity": {"subject": "u1", "role": "editor"},
+        "resource": {"http_method": "GET", "route": "/monitoring/stats", "action": "read"},
+    }
+}
+
+test_reader_get_monitoring_decisions_denied if {
+    not rbac.allow with input as {
+        "identity": {"subject": "u1", "role": "reader"},
+        "resource": {"http_method": "GET", "route": "/monitoring/decisions", "action": "read"},
+    }
+}
+
+test_editor_get_monitoring_risk_timeline_denied if {
+    not rbac.allow with input as {
+        "identity": {"subject": "u1", "role": "editor"},
+        "resource": {"http_method": "GET", "route": "/monitoring/risk-timeline", "action": "read"},
+    }
+}
