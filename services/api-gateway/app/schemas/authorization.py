@@ -26,6 +26,7 @@ class ResourceContext(BaseModel):
 class RiskContext(BaseModel):
     score: float | None = None
     model_version: str | None = None
+    threshold: float | None = None
 
 
 class MfaContext(BaseModel):

@@ -40,6 +40,27 @@ class PersonaClient:
         if response.status_code != 200:
             raise AuthenticationError(f"login failed for {self.email}: {response.status_code} {response.text}")
         body = response.json()
+
+        if body.get("mfa_enrollment_required"):
+            # Mandatory MFA (see AuthService.login): an account with no
+            # user_mfa row gets a narrow enrollment token instead of a full
+            # pair. Seeded personas are pre-enrolled by scripts/seed_users.py
+            # / scripts/seed_business_data.py, so this should not normally
+            # fire -- it's a defensive fallback, not the expected path.
+            # POST /mfa/enroll takes no code/proof and mints a fresh secret;
+            # this generator has no use for that secret (it never completes a
+            # step-up challenge), so it's discarded once the full pair is in
+            # hand.
+            enroll_response = await self._client.post(
+                "/mfa/enroll", headers={"Authorization": f"Bearer {body['enrollment_token']}"}
+            )
+            if enroll_response.status_code != 200:
+                raise AuthenticationError(
+                    f"mfa auto-enrollment failed for {self.email}: {enroll_response.status_code} {enroll_response.text}"
+                )
+            body = enroll_response.json()
+            logger.warning("%s: was not pre-enrolled in MFA, auto-enrolled now", self.email)
+
         self._access_token = body["access_token"]
         self._refresh_token = body["refresh_token"]
 

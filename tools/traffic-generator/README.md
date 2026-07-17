@@ -33,7 +33,12 @@ generator runs in real time, at human pace, for days.**
 
 1. The docker-compose stack is up (`docker compose -f docker/docker-compose.yml up -d`).
 2. `scripts/seed_business_data.py` has been run against the gateway (creates
-   the 25 persona accounts + 400 documents + 400 orders this tool drives).
+   the 25 persona accounts + 400 documents + 400 orders this tool drives, and
+   -- since MFA is mandatory (see `services/api-gateway/app/services/auth.py`)
+   -- enrolls all of them in MFA, writing their TOTP secrets to the
+   git-ignored `persona_secrets.json` in this directory). `PersonaClient`
+   copes if an account somehow isn't pre-enrolled (auto-enrolls on first
+   login), but the documented path is: seed first, generator second.
 3. **`TRUSTED_PROXIES` must include the gateway's view of this generator's
    peer IP**, or `X-Forwarded-For` is (correctly, securely) ignored and every
    persona collapses onto one IP -- silently producing a worthless dataset.

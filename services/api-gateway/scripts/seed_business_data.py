@@ -24,8 +24,12 @@ from argon2 import PasswordHasher
 from sqlalchemy import func, insert, select
 
 from app.core.database import build_async_session_factory
+from app.core.repositories import UserMfaRepository
 from app.core.settings import GatewaySettings
+from app.core.vault import VaultTransitClient
 from app.models.tables import documents_table, orders_table, roles_table, users_table
+from app.services.mfa_enrollment import MfaEnrollmentService
+from scripts._mfa_seed_support import ensure_mfa_enrolled, load_secrets, save_secrets, secrets_file_path
 
 _password_hasher = PasswordHasher()
 
@@ -85,6 +89,34 @@ async def _ensure_user_pool(session_factory) -> list:
     return list(user_ids)
 
 
+async def _ensure_mfa_enrollment(session_factory, settings: GatewaySettings) -> None:
+    """Mandatory MFA (see AuthService.login): every seeded persona needs a real
+    enrollment or it's stuck at the enrollment gate on first login."""
+    vault_client = VaultTransitClient(
+        vault_addr=settings.vault_addr, vault_token=settings.vault_token, key_name=settings.vault_totp_key_name
+    )
+    user_mfa_repository = UserMfaRepository(session_factory)
+    enrollment_service = MfaEnrollmentService(vault_client=vault_client, repository=user_mfa_repository, settings=settings)
+
+    pool_emails = [email for email, _role in _pool_emails()]
+    async with session_factory() as session:
+        rows = (
+            await session.execute(
+                select(users_table.c.user_id, users_table.c.email).where(users_table.c.email.in_(pool_emails))
+            )
+        ).all()
+
+    secrets_path = secrets_file_path()
+    secrets = load_secrets(secrets_path)
+    new_enrollments = 0
+    for row in rows:
+        is_new = await ensure_mfa_enrolled(enrollment_service, row.user_id, row.email, secrets)
+        if is_new:
+            new_enrollments += 1
+    save_secrets(secrets_path, secrets)
+    print(f"MFA: {new_enrollments} newly enrolled, {len(rows)} total, secrets written to {secrets_path}")
+
+
 async def _seed_documents(session_factory, owner_ids: list) -> None:
     async with session_factory() as session:
         current_count = (await session.execute(select(func.count()).select_from(documents_table))).scalar_one()
@@ -141,6 +173,8 @@ async def main() -> None:
 
     owner_ids = await _ensure_user_pool(session_factory)
     print(f"user pool size: {len(owner_ids)}")
+
+    await _ensure_mfa_enrollment(session_factory, settings)
 
     await _seed_documents(session_factory, owner_ids)
     await _seed_orders(session_factory, owner_ids)

@@ -36,9 +36,11 @@ class GatewaySettings:
     totp_replay_ttl_seconds: int = _required_int_env("TOTP_REPLAY_TTL_SECONDS", 90)
     mfa_verified_ttl_seconds: int = _required_int_env("MFA_VERIFIED_TTL_SECONDS", 300)
     access_token_ttl_minutes: int = _required_int_env("ACCESS_TOKEN_TTL_MINUTES", 15)
+    enrollment_token_ttl_minutes: int = _required_int_env("ENROLLMENT_TOKEN_TTL_MINUTES", 5)
     refresh_token_ttl_days: int = _required_int_env("REFRESH_TOKEN_TTL_DAYS", 7)
     login_max_failed_attempts: int = _required_int_env("LOGIN_MAX_FAILED_ATTEMPTS", 5)
     login_lockout_duration_minutes: int = _required_int_env("LOGIN_LOCKOUT_DURATION_MINUTES", 15)
     trusted_proxies: frozenset[str] = frozenset(
         p.strip() for p in os.getenv("TRUSTED_PROXIES", "").split(",") if p.strip()
     )
+    fallback_step_up_threshold: float = float(os.getenv("FALLBACK_STEP_UP_THRESHOLD", "0.65"))

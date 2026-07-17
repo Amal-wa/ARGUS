@@ -2,6 +2,10 @@
 .env
 **/.env
 docker/.env
+# Plaintext TOTP secrets for seeded demo personas (scripts/seed_users.py,
+# scripts/seed_business_data.py) -- demo/seed-time convenience only, never
+# committed.
+tools/traffic-generator/persona_secrets.json
 
 # Vault (dev mode génère des données locales)
 vault-data/

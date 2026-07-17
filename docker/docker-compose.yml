@@ -127,6 +127,9 @@ services:
       # `ratelimit:ip:*` scan if this network is ever recreated, since Docker
       # can reassign the bridge subnet/gateway).
       - TRUSTED_PROXIES=172.18.0.1
+      # See the volumes entry below: only meaningful for scripts/seed_users.py
+      # and scripts/seed_business_data.py, not the running app.
+      - SEED_MFA_SECRETS_PATH=/tools/traffic-generator/persona_secrets.json
     depends_on:
       postgres:
         condition: service_healthy
@@ -142,6 +145,13 @@ services:
         condition: service_healthy
     volumes:
       - ../services/api-gateway:/app
+      # Write target for scripts/seed_users.py / scripts/seed_business_data.py's
+      # persona MFA secrets file -- NOT the app's own code, just an output path
+      # so `docker compose run --rm api-gateway poetry run python scripts/seed_...`
+      # persists tools/traffic-generator/persona_secrets.json on the HOST
+      # instead of inside the ephemeral --rm container (where it would vanish
+      # on exit). See SEED_MFA_SECRETS_PATH below.
+      - ../tools/traffic-generator:/tools/traffic-generator
     # --no-proxy-headers: uvicorn's OWN X-Forwarded-For handling is enabled by
     # default and trusts 127.0.0.1 out of the box -- that silently rewrites
     # scope["client"] before our app-level resolve_client_ip (TRUSTED_PROXIES

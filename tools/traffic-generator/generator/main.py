@@ -48,6 +48,15 @@ async def _check_seeded_users_exist(base_url: str, personas: list[Persona]) -> N
             f"FATAL: could not log in as seeded user {probe.email}: {response.status_code} {response.text}\n"
             "Run scripts/seed_business_data.py against the gateway first (it also runs scripts/seed_users.py's job)."
         )
+    if response.json().get("mfa_enrollment_required"):
+        # Not fatal -- PersonaClient.login() self-heals via POST /mfa/enroll
+        # (see client.py) -- but this means seed_business_data.py's MFA
+        # enrollment step wasn't run (or is stale), which is worth surfacing.
+        print(
+            f"  NOTE: {probe.email} is not MFA-enrolled yet (mandatory MFA); "
+            "PersonaClient will auto-enroll on first login. Re-run "
+            "scripts/seed_business_data.py to pre-enroll and silence this."
+        )
 
 
 async def _check_xff_honored(base_url: str, redis_url: str) -> None:
@@ -98,13 +107,24 @@ async def _check_xff_honored(base_url: str, redis_url: str) -> None:
         )
 
 
+async def _login_and_get_pair(client: httpx.AsyncClient, email: str, password: str, ip: str) -> dict:
+    """Raw (non-PersonaClient) login helper that copes with mandatory MFA the
+    same way PersonaClient.login() does: auto-enrolls (no code/proof required)
+    if the account isn't pre-enrolled yet, then returns the full pair body."""
+    response = await client.post("/auth/login", json={"email": email, "password": password}, headers={"X-Forwarded-For": ip})
+    response.raise_for_status()
+    body = response.json()
+    if body.get("mfa_enrollment_required"):
+        enroll_response = await client.post("/mfa/enroll", headers={"Authorization": f"Bearer {body['enrollment_token']}"})
+        enroll_response.raise_for_status()
+        body = enroll_response.json()
+    return body
+
+
 async def _fetch_resource_pool(base_url: str, admin: Persona) -> tuple[list[str], list[str]]:
     async with httpx.AsyncClient(base_url=base_url, timeout=10.0) as client:
-        login = await client.post(
-            "/auth/login", json={"email": admin.email, "password": admin.password}, headers={"X-Forwarded-For": admin.ip}
-        )
-        login.raise_for_status()
-        headers = {"Authorization": f"Bearer {login.json()['access_token']}", "X-Forwarded-For": admin.ip}
+        pair = await _login_and_get_pair(client, admin.email, admin.password, admin.ip)
+        headers = {"Authorization": f"Bearer {pair['access_token']}", "X-Forwarded-For": admin.ip}
 
         documents = await client.get("/documents", params={"limit": 1000}, headers=headers)
         documents.raise_for_status()

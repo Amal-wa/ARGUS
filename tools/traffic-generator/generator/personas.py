@@ -26,6 +26,10 @@ class Persona:
     burst_probability: float
     burst_length_range: tuple[int, int]
     write_ratio: float
+    # Fraction of this persona's actions that target documents rather than
+    # orders. Per-persona (not global) so the heterogeneity of the ratio
+    # itself is part of the signal, same reasoning as mean_interval_seconds.
+    document_ratio: float
     # Populated after the resource pool is fetched from the API at startup.
     favorite_document_ids: list[str] = field(default_factory=list)
     favorite_order_ids: list[str] = field(default_factory=list)
@@ -70,6 +74,11 @@ def _make_persona(index: int, email: str, role: str, password: str, rng: random.
     elif role == "admin":
         write_ratio = rng.uniform(0.05, 0.20)
 
+    # 50/50 to 85/15 documents/orders -- some personas barely touch orders,
+    # others are near-evenly split; the spread between personas is itself a
+    # useful signal, same reasoning as mean_interval_seconds.
+    document_ratio = rng.uniform(0.50, 0.85)
+
     return Persona(
         index=index,
         email=email,
@@ -80,6 +89,7 @@ def _make_persona(index: int, email: str, role: str, password: str, rng: random.
         burst_probability=burst_probability,
         burst_length_range=(2, 6),
         write_ratio=write_ratio,
+        document_ratio=document_ratio,
     )
 
 

@@ -174,6 +174,101 @@ def test_reused_access_token_now_succeeds_on_business_route():
     asyncio.run(_run())
 
 
+def test_enrollment_scoped_token_denied_on_documents():
+    async def _run():
+        redis = InMemoryRedis()
+        recorder = Recorder()
+        private_key = Ed25519PrivateKey.generate()
+        services = _services(redis, recorder, FakeAuthorizationService(), private_key)
+        app = FakeApp(services)
+        token = _make_token(private_key, _claims(scope="mfa_enrollment"))
+
+        response = await GatewayMiddleware(app=None).dispatch(
+            FakeRequest(app, path="/documents/123", token=token), _call_next_success
+        )
+
+        assert response.status_code == 403
+        assert json.loads(response.body)["detail"] == "mfa_enrollment_required"
+
+    asyncio.run(_run())
+
+
+def test_enrollment_scoped_token_denied_on_orders():
+    async def _run():
+        redis = InMemoryRedis()
+        recorder = Recorder()
+        private_key = Ed25519PrivateKey.generate()
+        services = _services(redis, recorder, FakeAuthorizationService(), private_key)
+        app = FakeApp(services)
+        token = _make_token(private_key, _claims(scope="mfa_enrollment"))
+
+        response = await GatewayMiddleware(app=None).dispatch(
+            FakeRequest(app, path="/orders/123", token=token), _call_next_success
+        )
+
+        assert response.status_code == 403
+        assert json.loads(response.body)["detail"] == "mfa_enrollment_required"
+
+    asyncio.run(_run())
+
+
+def test_enrollment_scoped_token_denied_on_users():
+    async def _run():
+        redis = InMemoryRedis()
+        recorder = Recorder()
+        private_key = Ed25519PrivateKey.generate()
+        services = _services(redis, recorder, FakeAuthorizationService(), private_key)
+        app = FakeApp(services)
+        token = _make_token(private_key, _claims(scope="mfa_enrollment"))
+
+        response = await GatewayMiddleware(app=None).dispatch(
+            FakeRequest(app, path="/users", token=token), _call_next_success
+        )
+
+        assert response.status_code == 403
+        assert json.loads(response.body)["detail"] == "mfa_enrollment_required"
+
+    asyncio.run(_run())
+
+
+def test_enrollment_scoped_token_allowed_on_mfa_enroll():
+    async def _run():
+        redis = InMemoryRedis()
+        recorder = Recorder()
+        private_key = Ed25519PrivateKey.generate()
+        services = _services(redis, recorder, FakeAuthorizationService(), private_key)
+        app = FakeApp(services)
+        token = _make_token(private_key, _claims(scope="mfa_enrollment"))
+
+        response = await GatewayMiddleware(app=None).dispatch(
+            FakeRequest(app, method="POST", path="/mfa/enroll", token=token), _call_next_success
+        )
+
+        assert response.status_code == 200
+
+    asyncio.run(_run())
+
+
+def test_normal_access_token_unaffected_by_enrollment_confinement():
+    async def _run():
+        redis = InMemoryRedis()
+        recorder = Recorder()
+        private_key = Ed25519PrivateKey.generate()
+        fake_authz = FakeAuthorizationService()
+        services = _services(redis, recorder, fake_authz, private_key)
+        app = FakeApp(services)
+        token = _make_token(private_key, _claims())  # no scope claim
+
+        response = await GatewayMiddleware(app=None).dispatch(
+            FakeRequest(app, path="/documents/123", token=token), _call_next_success
+        )
+
+        assert response.status_code == 200
+        assert fake_authz.calls == 1
+
+    asyncio.run(_run())
+
+
 def test_blacklisted_jti_still_rejected():
     async def _run():
         redis = InMemoryRedis()

@@ -26,12 +26,28 @@ async def enroll_mfa(request: Request):
     except MfaAlreadyEnrolledError:
         return JSONResponse({"detail": "mfa_already_enrolled"}, status_code=409)
 
+    # Expected caller is an `mfa_enrollment`-scoped token (the Gateway confines
+    # it to this path; see GatewayMiddleware) -- but a normal, already-full
+    # access token calling this defensively also works and is never refused:
+    # `mfa_enrollment_service.enroll` above already raises MfaAlreadyEnrolledError
+    # for the (post-fix, expected) case where that caller is already enrolled,
+    # so this line is only reached for a genuinely first-time enrollment either
+    # way. No user is ever locked out by this endpoint.
+    pair = await services.auth_service.issue_full_pair(context.claims.subject, context.claims.role)
+
     account = str(context.claims.subject)
     otpauth_uri = (
         f"otpauth://totp/{quote(_OTP_ISSUER)}:{quote(account)}"
         f"?secret={base32_secret}&issuer={quote(_OTP_ISSUER)}&digits=6&period=30"
     )
-    return {"secret": base32_secret, "otpauth_uri": otpauth_uri}
+    return {
+        "secret": base32_secret,
+        "otpauth_uri": otpauth_uri,
+        "access_token": pair.access_token,
+        "refresh_token": pair.refresh_token,
+        "token_type": "bearer",
+        "expires_in": pair.expires_in,
+    }
 
 
 @router.post("/mfa/challenge/verify")

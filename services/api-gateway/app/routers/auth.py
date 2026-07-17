@@ -54,6 +54,13 @@ async def login(request: Request):
         )
         return JSONResponse({"detail": "account locked"}, status_code=429)
 
+    if result.status == LoginStatus.MFA_ENROLLMENT_REQUIRED:
+        return {
+            "enrollment_token": result.enrollment_token,
+            "token_type": "bearer",
+            "mfa_enrollment_required": True,
+        }
+
     return {
         "access_token": result.access_token,
         "refresh_token": result.refresh_token,

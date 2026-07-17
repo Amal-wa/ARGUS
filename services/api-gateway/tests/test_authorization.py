@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from uuid import uuid4
 
+import pytest
 from fastapi import FastAPI
 
 from app.core.redis_client import InMemoryRedis
 from app.core.repositories import OpaDecisionRecord, TrainingSampleRecord
 from app.core.security import VerifiedJWT
+from app.core.settings import GatewaySettings
 from app.middleware.context import RequestContext
 from app.schemas.authorization import OpaDecision, OpaDecisionResult, RiskScoreResult
 from app.services.authorization import AuthorizationService
@@ -81,6 +84,7 @@ def _service(opa_result: OpaDecisionResult, scoring_result: RiskScoreResult, red
         scoring_client=RecordingScoringClient(scoring_result),
         feature_vector_service=FeatureVectorService(redis_client=redis),
         repository=RecordingRepository(),
+        settings=GatewaySettings(),
     )
     return app, service
 
@@ -169,5 +173,90 @@ def test_authorize_post_step_up_request_marks_mfa_verified_and_post_step_up():
         assert len(service.repository.samples) == 0
         assert service.opa_client.payloads[0].is_post_step_up is True
         assert service.opa_client.payloads[0].mfa.verified is True
+
+    asyncio.run(_run())
+
+
+def test_authorize_no_active_model_leaves_threshold_null():
+    async def _run():
+        app, service = _service(
+            OpaDecisionResult(decision=OpaDecision.ALLOW, policy_name="bootstrap_allow"),
+            RiskScoreResult(risk_score=None, model_version=None),
+        )
+        context = RequestContext(method="GET", path="/documents/123", claims=_claims())
+        request = _request(app)
+
+        await service.authorize(request=request, context=context)
+
+        assert service.opa_client.payloads[0].risk_ctx.score is None
+        assert service.opa_client.payloads[0].risk_ctx.threshold is None
+        assert service.scoring_client.calls == 0
+
+    asyncio.run(_run())
+
+
+def test_authorize_active_threshold_is_injected_into_opa_input():
+    async def _run():
+        redis = InMemoryRedis()
+        await redis.set("model:active_version", "v1")
+        await redis.set("model:active_threshold", "0.651")
+        app, service = _service(
+            OpaDecisionResult(decision=OpaDecision.ALLOW, policy_name="risk_allow"),
+            RiskScoreResult(risk_score=0.6, model_version="v1"),
+            redis=redis,
+        )
+        context = RequestContext(method="GET", path="/documents/123", claims=_claims())
+        request = _request(app)
+
+        await service.authorize(request=request, context=context)
+
+        assert service.opa_client.payloads[0].risk_ctx.threshold == pytest.approx(0.651)
+
+    asyncio.run(_run())
+
+
+def test_authorize_missing_threshold_with_active_model_uses_fallback_and_logs_warning(caplog):
+    async def _run():
+        redis = InMemoryRedis()
+        await redis.set("model:active_version", "v1")
+        app, service = _service(
+            OpaDecisionResult(decision=OpaDecision.ALLOW, policy_name="risk_allow"),
+            RiskScoreResult(risk_score=0.6, model_version="v1"),
+            redis=redis,
+        )
+        context = RequestContext(method="GET", path="/documents/123", claims=_claims())
+        request = _request(app)
+
+        with caplog.at_level(logging.WARNING):
+            await service.authorize(request=request, context=context)
+
+        assert service.opa_client.payloads[0].risk_ctx.threshold == pytest.approx(
+            service.settings.fallback_step_up_threshold
+        )
+        assert any("model:active_threshold" in record.message for record in caplog.records)
+
+    asyncio.run(_run())
+
+
+def test_authorize_unparseable_threshold_with_active_model_uses_fallback_and_logs_warning(caplog):
+    async def _run():
+        redis = InMemoryRedis()
+        await redis.set("model:active_version", "v1")
+        await redis.set("model:active_threshold", "not-a-float")
+        app, service = _service(
+            OpaDecisionResult(decision=OpaDecision.ALLOW, policy_name="risk_allow"),
+            RiskScoreResult(risk_score=0.6, model_version="v1"),
+            redis=redis,
+        )
+        context = RequestContext(method="GET", path="/documents/123", claims=_claims())
+        request = _request(app)
+
+        with caplog.at_level(logging.WARNING):
+            await service.authorize(request=request, context=context)
+
+        assert service.opa_client.payloads[0].risk_ctx.threshold == pytest.approx(
+            service.settings.fallback_step_up_threshold
+        )
+        assert any("model:active_threshold" in record.message for record in caplog.records)
 
     asyncio.run(_run())

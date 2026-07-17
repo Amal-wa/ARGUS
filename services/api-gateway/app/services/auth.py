@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 
-from app.core.repositories import RefreshTokenRepository, UserRepository
+from app.core.repositories import RefreshTokenRepository, UserMfaRepository, UserRepository
 from app.core.settings import GatewaySettings
 from app.services.token_service import TokenService, hash_refresh_token
 
@@ -32,6 +32,7 @@ class LoginStatus(str, Enum):
     SUCCESS = "success"
     INVALID_CREDENTIALS = "invalid_credentials"
     ACCOUNT_LOCKED = "account_locked"
+    MFA_ENROLLMENT_REQUIRED = "mfa_enrollment_required"
 
 
 class RefreshStatus(str, Enum):
@@ -46,6 +47,7 @@ class LoginResult:
     access_token: str | None = None
     refresh_token: str | None = None
     expires_in: int | None = None
+    enrollment_token: str | None = None
 
 
 @dataclass(slots=True)
@@ -64,6 +66,7 @@ class AuthService:
     refresh_token_repository: RefreshTokenRepository
     token_service: TokenService
     settings: GatewaySettings
+    user_mfa_repository: UserMfaRepository
 
     async def login(self, email: str, password: str) -> LoginResult:
         user = await self.user_repository.get_by_email(email)
@@ -90,10 +93,29 @@ class AuthService:
 
         await self.user_repository.reset_login_attempts(user.user_id)
 
+        # Mandatory MFA: an account with no user_mfa row has never completed
+        # enrollment, so it does NOT get a full access/refresh pair yet -- only
+        # a narrow, short-lived token confined by the Gateway to POST
+        # /mfa/enroll (see GatewayMiddleware). Without this gate, anyone
+        # holding a stolen password could enroll THEIR OWN TOTP secret on an
+        # otherwise-unprotected account and satisfy every future step-up
+        # challenge, defeating adaptive MFA entirely.
+        mfa_record = await self.user_mfa_repository.get(user.user_id)
+        if mfa_record is None:
+            enrollment_token = await self.token_service.issue_enrollment_token(user_id=user.user_id, role=user.role)
+            return LoginResult(status=LoginStatus.MFA_ENROLLMENT_REQUIRED, enrollment_token=enrollment_token)
+
+        return await self.issue_full_pair(user.user_id, user.role)
+
+    async def issue_full_pair(self, user_id: UUID, role: str) -> LoginResult:
+        """The one place a brand-new access/refresh pair (new family_id) is
+        minted -- used by both a normal login of an already-enrolled account
+        and by POST /mfa/enroll on successful first enrollment, so the two
+        paths can never drift apart."""
         family_id = uuid4()
-        access_token = await self.token_service.issue_access_token(user_id=user.user_id, role=user.role)
+        access_token = await self.token_service.issue_access_token(user_id=user_id, role=role)
         refresh_token, refresh_token_hash, refresh_expires_at = self.token_service.issue_refresh_token()
-        await self.refresh_token_repository.create(refresh_token_hash, family_id, user.user_id, refresh_expires_at)
+        await self.refresh_token_repository.create(refresh_token_hash, family_id, user_id, refresh_expires_at)
 
         return LoginResult(
             status=LoginStatus.SUCCESS,

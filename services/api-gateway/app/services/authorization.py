@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from fastapi import Request
@@ -10,9 +11,12 @@ from app.core.opa_client import OpaClient
 from app.core.redis_client import RedisLike
 from app.core.repositories import AuthorizationRepository, OpaDecisionRecord, TrainingSampleRecord
 from app.core.request_matching import request_action, resolve_route_pattern
+from app.core.settings import GatewaySettings
 from app.middleware.context import RequestContext
 from app.schemas.authorization import OpaDecision, OpaPolicyInput, RiskScoreResult
 from app.services.feature_vector import FeatureVectorService
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -29,6 +33,7 @@ class AuthorizationService:
     scoring_client: IsolationForestClient
     feature_vector_service: FeatureVectorService
     repository: AuthorizationRepository
+    settings: GatewaySettings
 
     async def authorize(self, request: Request, context: RequestContext) -> AuthorizationOutcome:
         if context.claims is None:
@@ -42,8 +47,32 @@ class AuthorizationService:
 
         active_model_version = await self.redis_client.get("model:active_version")
         risk_ctx = RiskScoreResult()
+        threshold: float | None = None
         if active_model_version is not None:
             risk_ctx = await self.scoring_client.score(feature_vector)
+            raw_threshold = await self.redis_client.get("model:active_threshold")
+            if raw_threshold is None:
+                threshold = self.settings.fallback_step_up_threshold
+                logger.warning(
+                    "model:active_threshold missing while model:active_version=%s is active; "
+                    "falling back to configured threshold %.3f",
+                    active_model_version,
+                    threshold,
+                    extra={"model_version": active_model_version, "fallback_threshold": threshold},
+                )
+            else:
+                try:
+                    threshold = float(raw_threshold)
+                except ValueError:
+                    threshold = self.settings.fallback_step_up_threshold
+                    logger.warning(
+                        "model:active_threshold %r is unparseable while model:active_version=%s is active; "
+                        "falling back to configured threshold %.3f",
+                        raw_threshold,
+                        active_model_version,
+                        threshold,
+                        extra={"model_version": active_model_version, "fallback_threshold": threshold},
+                    )
 
         mfa_verified = context.is_post_step_up
         verified_marker = await self.redis_client.get(f"mfa:verified:{context.claims.subject}")
@@ -54,7 +83,11 @@ class AuthorizationService:
         opa_input = OpaPolicyInput(
             identity={"subject": context.claims.subject, "role": context.claims.role},
             resource={"http_method": context.method, "route": route_pattern, "action": action},
-            risk_ctx={"score": risk_ctx.risk_score, "model_version": risk_ctx.model_version},
+            risk_ctx={
+                "score": risk_ctx.risk_score,
+                "model_version": risk_ctx.model_version,
+                "threshold": threshold,
+            },
             mfa={"verified": mfa_verified},
             is_post_step_up=context.is_post_step_up,
             feature_vector=feature_vector,

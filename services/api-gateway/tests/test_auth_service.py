@@ -84,16 +84,32 @@ class FakeRefreshTokenRepository:
 @dataclass(slots=True)
 class FakeTokenService:
     issued_access_tokens: list[tuple[UUID, str]] = field(default_factory=list)
+    issued_enrollment_tokens: list[tuple[UUID, str]] = field(default_factory=list)
 
     async def issue_access_token(self, *, user_id, role):
         self.issued_access_tokens.append((user_id, role))
         return f"access-token-for-{user_id}"
+
+    async def issue_enrollment_token(self, *, user_id, role):
+        self.issued_enrollment_tokens.append((user_id, role))
+        return f"enrollment-token-for-{user_id}"
 
     def issue_refresh_token(self):
         token = f"refresh-token-{uuid4()}"
         token_hash = hash_refresh_token(token)
         expires_at = datetime.now(timezone.utc) + timedelta(days=7)
         return token, token_hash, expires_at
+
+
+@dataclass(slots=True)
+class FakeUserMfaRepository:
+    """Defaults to "everyone enrolled" so pre-existing SUCCESS-path tests are
+    unaffected; pass enrolled=False to exercise the MFA-enrollment gate."""
+
+    enrolled: bool = True
+
+    async def get(self, user_id):
+        return object() if self.enrolled else None
 
 
 def _user(email="reader@zt.local", password="correct-horse-battery-staple", **overrides) -> UserRecord:
@@ -116,12 +132,15 @@ def _settings(**overrides) -> GatewaySettings:
     return GatewaySettings(**defaults)
 
 
-def _service(user_repository=None, refresh_token_repository=None, token_service=None, settings=None):
+def _service(
+    user_repository=None, refresh_token_repository=None, token_service=None, settings=None, user_mfa_repository=None
+):
     return AuthService(
         user_repository=user_repository or FakeUserRepository(),
         refresh_token_repository=refresh_token_repository or FakeRefreshTokenRepository(),
         token_service=token_service or FakeTokenService(),
         settings=settings or _settings(),
+        user_mfa_repository=user_mfa_repository or FakeUserMfaRepository(enrolled=True),
     )
 
 
@@ -211,6 +230,65 @@ def test_login_fifth_failure_locks_account():
         assert results[4].status == LoginStatus.ACCOUNT_LOCKED
         assert user.failed_login_attempts == 0
         assert user.locked_until is not None
+
+    asyncio.run(_run())
+
+
+def test_login_unenrolled_user_returns_enrollment_token_not_full_pair():
+    async def _run():
+        user = _user()
+        user_repo = FakeUserRepository(records_by_email={user.email: user})
+        refresh_repo = FakeRefreshTokenRepository()
+        token_service = FakeTokenService()
+        service = _service(
+            user_repository=user_repo,
+            refresh_token_repository=refresh_repo,
+            token_service=token_service,
+            user_mfa_repository=FakeUserMfaRepository(enrolled=False),
+        )
+
+        result = await service.login(user.email, "correct-horse-battery-staple")
+
+        assert result.status == LoginStatus.MFA_ENROLLMENT_REQUIRED
+        assert result.enrollment_token == f"enrollment-token-for-{user.user_id}"
+        assert result.access_token is None
+        assert result.refresh_token is None
+        assert len(token_service.issued_enrollment_tokens) == 1
+        assert len(token_service.issued_access_tokens) == 0
+        assert len(refresh_repo.created) == 0
+
+    asyncio.run(_run())
+
+
+def test_login_enrolled_user_returns_full_pair_not_enrollment_token():
+    async def _run():
+        user = _user()
+        user_repo = FakeUserRepository(records_by_email={user.email: user})
+        service = _service(user_repository=user_repo, user_mfa_repository=FakeUserMfaRepository(enrolled=True))
+
+        result = await service.login(user.email, "correct-horse-battery-staple")
+
+        assert result.status == LoginStatus.SUCCESS
+        assert result.access_token is not None
+        assert result.refresh_token is not None
+        assert result.enrollment_token is None
+
+    asyncio.run(_run())
+
+
+def test_issue_full_pair_used_by_login_and_directly_produce_identical_shape():
+    async def _run():
+        user = _user()
+        refresh_repo = FakeRefreshTokenRepository()
+        service = _service(refresh_token_repository=refresh_repo)
+
+        direct = await service.issue_full_pair(user.user_id, user.role)
+
+        assert direct.status == LoginStatus.SUCCESS
+        assert direct.access_token is not None
+        assert direct.refresh_token is not None
+        assert len(refresh_repo.created) == 1
+        assert refresh_repo.created[0].user_id == user.user_id
 
     asyncio.run(_run())
 

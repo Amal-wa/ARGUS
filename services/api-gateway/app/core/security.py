@@ -38,6 +38,10 @@ class VerifiedJWT:
     role: str
     risk_ctx: Any | None
     raw_claims: dict[str, Any]
+    # None for a normal access token. "mfa_enrollment" for the short-lived,
+    # single-purpose token issued by an un-enrolled login -- confined by the
+    # gateway to POST /mfa/enroll only (see GatewayMiddleware).
+    scope: str | None = None
 
 
 def _base64url_decode(segment: str) -> bytes:
@@ -112,6 +116,7 @@ class JWTVerifier:
             jti = UUID(str(payload["jti"]))
             role = str(payload["role"])
             risk_ctx = payload.get("risk_ctx")
+            scope = payload.get("scope")
             trusted_user_id = subject
         except Exception as exc:
             raise JWTVerificationError("JWT claims are incomplete or invalid", pre_signature=False, trusted_user_id=trusted_user_id) from exc
@@ -135,6 +140,7 @@ class JWTVerifier:
             role=role,
             risk_ctx=risk_ctx,
             raw_claims=payload,
+            scope=scope,
         )
 
 

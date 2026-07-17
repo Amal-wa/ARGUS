@@ -36,6 +36,15 @@ from app.services.mfa_enrollment import MfaEnrollmentService
 #                              lock a reader out of their own step-up flow.
 # 4. Everything else        -> the full pipeline, ending in OPA authorize.
 #
+# Orthogonal to the above: an `mfa_enrollment`-scoped token (issued by
+# AuthService.login for an account with no user_mfa row yet -- mandatory MFA)
+# is confined to POST /mfa/enroll ONLY, regardless of which tier the path would
+# otherwise fall into. This is what makes enrollment mandatory rather than
+# advisory: without it, a stolen password would let an attacker log in and
+# enroll THEIR OWN TOTP secret on an unprotected account, satisfying every
+# future step-up challenge. See the `claims.scope == "mfa_enrollment"` check
+# below, evaluated before the GATEWAY_INTERNAL_PATHS tier.
+#
 # NOTE: per-request JWT replay checking (SETNX used:jti) has been removed from
 # this pipeline. The access token is now deliberately reusable for its whole TTL
 # (see AuthService/token_service) -- single-use semantics belong on the refresh
@@ -127,6 +136,30 @@ class GatewayMiddleware(BaseHTTPMiddleware):
         revoked = await check_jti_blacklist(context=context, redis_client=services.redis_client, event_logger=services.event_logger)
         if revoked is not None:
             return JSONResponse({"detail": "token revoked"}, status_code=401)
+
+        if claims.scope == "mfa_enrollment":
+            # Confinement for the enrollment-gate token (see AuthService.login):
+            # it may do exactly one thing -- enroll -- and nothing else. Without
+            # this, the token would fall through to GATEWAY_INTERNAL_PATHS /
+            # the full OPA pipeline like any other authenticated token, and the
+            # whole point of gating full access behind enrollment would be lost.
+            if context.path != "/mfa/enroll":
+                await services.event_logger.write(
+                    EventPayload(
+                        trace_id=context.trace_id,
+                        user_id=context.claims.subject,
+                        ip_address=context.ip_address,
+                        http_method=context.method,
+                        request_path=context.path,
+                        latency_ms=context.latency_ms(),
+                        http_status=403,
+                        event_type="mfa_failed",
+                        error_code="enrollment_scope_violation",
+                        error_message="mfa_enrollment-scoped token used outside POST /mfa/enroll",
+                    )
+                )
+                return JSONResponse({"detail": "mfa_enrollment_required"}, status_code=403)
+            return await call_next(request)
 
         if context.path in GATEWAY_INTERNAL_PATHS:
             return await call_next(request)

@@ -49,7 +49,12 @@ Every HTTP request passes through a single Starlette middleware, `GatewayMiddlew
      padded/truncated to exactly 20 floats (enforced by a DB `CHECK (cardinality(feature_vector) = 20)`).
    - Calls **Isolation Forest** (`core/isolation_forest_client.py`) for a risk score, but only if
      `model:active_version` is set in Redis — otherwise risk_ctx stays `{score: null}` (**bootstrap mode**, before
-     any ML model has been trained).
+     any ML model has been trained). When a model *is* active, the Gateway also reads `model:active_threshold`
+     (the active model's calibrated p98 — see the OPA bundle section below) and injects it as `risk_ctx.threshold`.
+     If `model:active_version` is set but `model:active_threshold` is missing or unparseable (a desync — a model
+     promoted without calibration, or promoted by hand instead of via `scripts/promote_model.py`), the Gateway
+     falls back to `settings.fallback_step_up_threshold` (`FALLBACK_STEP_UP_THRESHOLD`, default `0.65`) and logs a
+     warning — it never silently disables step-up by leaving the threshold unset.
    - Calls **OPA** (`core/opa_client.py`, `POST {OPA_URL}/v1/data/authz/decision`) with an `OpaPolicyInput`
      (identity, resource, risk_ctx, `mfa`, `is_post_step_up`, feature_vector) wrapped as `{"input": ...}` —
      OPA's REST API requires the `input` envelope; without it OPA evaluates against an undefined `input` and
@@ -67,8 +72,13 @@ Mounted read-only into the `opa` container at `/policy` (see `docker/docker-comp
 
 - `authz.rbac` (`policies/authz/rbac.rego`) — pure role/action RBAC (`reader`/`editor`/`admin`).
 - `authz.adaptive_access` (`policies/risk/adaptive_access.rego`) — turns `risk_ctx.score` into `allow`/`step_up`.
-  Threshold is `>= 0.8` → step_up. `bootstrap_mode` is true **only** when `risk_ctx.score == null` explicitly (a
-  missing `risk_ctx` entirely is treated as a contract violation, not bootstrap — see comment in that file).
+  The threshold is **not hardcoded**: it's `risk_ctx.threshold`, injected by the Gateway from Redis'
+  `model:active_threshold` (the active model's p98, calibrated on real traffic — "the 2% most behaviorally atypical
+  requests trigger step-up"). `score >= threshold` → step_up, `score < threshold` → allow; if a score is present
+  but `threshold == null` (should never happen — the Gateway always substitutes its fallback threshold first, see
+  above), `risk_decision` is left **undefined** on purpose, which falls through to `authz`'s fail-closed default
+  (deny) rather than silently allowing. `bootstrap_mode` is true **only** when `risk_ctx.score == null` explicitly
+  (a missing `risk_ctx` entirely is treated as a contract violation, not bootstrap — see comment in that file).
 - `authz.mfa` (`policies/risk/mfa.rego`) — trusts `input.mfa.verified`; OPA never verifies TOTP itself, the
   Gateway does that and reports the result.
 - `authz` (`policies/authz/decision.rego`) — combines the three into a final `{decision, policy_name}`,
@@ -119,6 +129,18 @@ even before any model has been trained; `POST /score` with no model loaded retur
 `behavioral-detector` and `ml-trainer` are unexposed background jobs (no `ports`/`expose`), triggered on
 a schedule, reading `events`/`opa_decision_log` and writing `event_anomaly` / training a new model version.
 
+### Model promotion (`services/api-gateway/scripts/promote_model.py`)
+
+Promoting a model to production is a deliberate manual act, run against the docker-compose stack with
+`docker compose run --rm api-gateway poetry run python scripts/promote_model.py <version>` (or locally with
+`cd services/api-gateway && poetry run python scripts/promote_model.py <version>`). It sets `model:active_version`
+and `model:active_threshold` in Redis **together**, reading the threshold (the version's calibrated p98) out of
+`ml_model_registry.score_distribution` — the column canary-validator populates. If that column is still `NULL` for
+the given version (canary-validator hasn't calibrated it yet), the script aborts and changes nothing rather than
+promoting an uncalibrated model. These two keys must always change together — always promote through this script,
+never `SET model:active_version` by hand, or the Gateway's fail-closed fallback threshold (see above) becomes the
+normal path instead of a rare desync safety net.
+
 ## Commands
 
 Commands in this section assume `cd services/api-gateway` unless noted otherwise.
@@ -159,8 +181,9 @@ docker compose -f docker/docker-compose.yml up
 Local ports: api-gateway `8000`, Postgres `5433→5432`, Redis `6379`, Vault `8200`, react-dashboard `5173`.
 Isolation Forest (`8001`) and canary-validator (`8002`) are only `expose`d internally, not published to the host.
 
-There is no configured linter/formatter (no ruff/black/eslint config found) and no OPA policy test suite
-(`tests/policies/*.json` are fixture inputs/documentation, not `opa test` cases) — don't assume either exists.
+There is no configured linter/formatter (no ruff/black/eslint config found). `tests/policies/*.json` are fixture
+inputs/documentation, not `opa test` cases — but `policies/` does have a real Rego test suite, run from the repo
+root with `opa test policies/ -v` (`policies/authz/rbac_test.rego`, `policies/risk/adaptive_access_test.rego`).
 
 ## Working conventions
 
@@ -171,6 +194,10 @@ There is no configured linter/formatter (no ruff/black/eslint config found) and 
   async HTTP client — match that style for new outbound calls in `app/core/`.
 - `risk_ctx.score == null` (bootstrap mode) is a deliberate, distinct state from a missing `risk_ctx` — don't
   collapse the two when touching the adaptive-access policy or the `AuthorizationService` risk-scoring branch.
+- The step-up threshold is **live model state**, calculated per-model and stored in Redis alongside
+  `model:active_version` (as `model:active_threshold`) — never hardcode it in Rego, and never write
+  `model:active_version` without also writing `model:active_threshold` (use `scripts/promote_model.py`, not a
+  manual `SET`).
 - `docker-compose.yml` has inline French comments explaining recent fixes (e.g. the OPA healthcheck protocol, why
   `dmz_net` was added to the ML services) — read them before "fixing" something that looks inconsistent, it may be
   intentional and already explained.

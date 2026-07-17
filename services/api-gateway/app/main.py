@@ -66,6 +66,7 @@ def build_app(
         scoring_client=scoring_client,
         feature_vector_service=feature_vector_service,
         repository=repository,
+        settings=settings,
     )
     user_mfa_repository = UserMfaRepository(session_factory)
     mfa_enrollment_service = MfaEnrollmentService(
@@ -87,6 +88,7 @@ def build_app(
         refresh_token_repository=refresh_token_repository,
         token_service=token_service,
         settings=settings,
+        user_mfa_repository=user_mfa_repository,
     )
     document_repository = DocumentRepository(session_factory)
     order_repository = OrderRepository(session_factory)

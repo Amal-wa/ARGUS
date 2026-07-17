@@ -21,8 +21,12 @@ from argon2 import PasswordHasher
 from sqlalchemy import insert, select
 
 from app.core.database import build_async_session_factory
+from app.core.repositories import UserMfaRepository
 from app.core.settings import GatewaySettings
+from app.core.vault import VaultTransitClient
 from app.models.tables import roles_table, users_table
+from app.services.mfa_enrollment import MfaEnrollmentService
+from scripts._mfa_seed_support import ensure_mfa_enrolled, load_secrets, save_secrets, secrets_file_path
 
 _password_hasher = PasswordHasher()
 
@@ -68,6 +72,34 @@ async def main() -> None:
             )
             print(f"created user: {seed_user['email']} ({seed_user['role']})")
         await session.commit()
+
+    # Mandatory MFA (see AuthService.login): every seeded account needs a real
+    # enrollment or it's stuck at the enrollment gate on first login.
+    vault_client = VaultTransitClient(
+        vault_addr=settings.vault_addr, vault_token=settings.vault_token, key_name=settings.vault_totp_key_name
+    )
+    user_mfa_repository = UserMfaRepository(session_factory)
+    enrollment_service = MfaEnrollmentService(vault_client=vault_client, repository=user_mfa_repository, settings=settings)
+
+    async with session_factory() as session:
+        rows = (
+            await session.execute(
+                select(users_table.c.user_id, users_table.c.email).where(
+                    users_table.c.email.in_([u["email"] for u in SEED_USERS])
+                )
+            )
+        ).all()
+
+    secrets_path = secrets_file_path()
+    secrets = load_secrets(secrets_path)
+    new_enrollments = 0
+    for row in rows:
+        is_new = await ensure_mfa_enrolled(enrollment_service, row.user_id, row.email, secrets)
+        if is_new:
+            new_enrollments += 1
+            print(f"enrolled MFA: {row.email}")
+    save_secrets(secrets_path, secrets)
+    print(f"MFA: {new_enrollments} newly enrolled, {len(rows)} total, secrets written to {secrets_path}")
 
     await engine.dispose()
 

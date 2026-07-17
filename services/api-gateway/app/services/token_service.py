@@ -28,7 +28,6 @@ class TokenService:
 
     async def issue_access_token(self, *, user_id: UUID, role: str) -> str:
         now = int(time.time())
-        header = {"alg": "EdDSA", "typ": "JWT"}
         payload = {
             "sub": str(user_id),
             "iss": self.settings.jwt_issuer,
@@ -38,6 +37,29 @@ class TokenService:
             "jti": str(uuid4()),
             "role": role,
         }
+        return await self._sign_jwt(payload)
+
+    async def issue_enrollment_token(self, *, user_id: UUID, role: str) -> str:
+        """Short-lived, single-purpose token for an un-enrolled account fresh
+        off password verification -- confined by the Gateway to POST
+        /mfa/enroll only (see GatewayMiddleware). Never grants access to any
+        business route; the account only gets a normal access token once
+        enrollment succeeds."""
+        now = int(time.time())
+        payload = {
+            "sub": str(user_id),
+            "iss": self.settings.jwt_issuer,
+            "aud": self.settings.jwt_audience,
+            "iat": now,
+            "exp": now + self.settings.enrollment_token_ttl_minutes * 60,
+            "jti": str(uuid4()),
+            "role": role,
+            "scope": "mfa_enrollment",
+        }
+        return await self._sign_jwt(payload)
+
+    async def _sign_jwt(self, payload: dict) -> str:
+        header = {"alg": "EdDSA", "typ": "JWT"}
         header_segment = _b64url(json.dumps(header, separators=(",", ":")).encode("utf-8"))
         payload_segment = _b64url(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
         signing_input = f"{header_segment}.{payload_segment}".encode("ascii")
