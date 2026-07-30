@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from app.trainer import TrainingSample, next_version_from_existing
+from app.trainer import FEATURE_VECTOR_DIMENSIONS, TrainingSample, next_version_from_existing
 
 
 class SqlMlTrainerRepository:
@@ -39,8 +39,10 @@ class SqlMlTrainerRepository:
             connection.execute(
                 text(
                     "INSERT INTO ml_model_registry "
-                    "(model_version, training_window_start, training_window_end, training_samples, hyperparameters) "
-                    "VALUES (:version, :window_start, :window_end, :sample_count, CAST(:hyperparameters AS JSONB))"
+                    "(model_version, training_window_start, training_window_end, training_samples, "
+                    "hyperparameters, feature_dims) "
+                    "VALUES (:version, :window_start, :window_end, :sample_count, "
+                    "CAST(:hyperparameters AS JSONB), :feature_dims)"
                 ),
                 {
                     "version": version,
@@ -48,6 +50,7 @@ class SqlMlTrainerRepository:
                     "window_end": window_end,
                     "sample_count": sample_count,
                     "hyperparameters": json.dumps(hyperparameters),
+                    "feature_dims": FEATURE_VECTOR_DIMENSIONS,
                 },
             )
         return version

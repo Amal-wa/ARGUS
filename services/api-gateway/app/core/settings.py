@@ -11,6 +11,13 @@ def _required_int_env(name: str, default: int) -> int:
     return int(value)
 
 
+def _bool_env(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None or value == "":
+        return default
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
 @dataclass(slots=True)
 class GatewaySettings:
     database_url: str = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:admin@postgres:5432/zt_db")
@@ -29,7 +36,6 @@ class GatewaySettings:
     rate_limit_user_limit: int = _required_int_env("RATE_LIMIT_USER_LIMIT", 200)
     rate_limit_window_seconds: int = 60
     jwk_refresh_lock_ttl_seconds: int = _required_int_env("JWK_REFRESH_LOCK_TTL_SECONDS", 30)
-    replay_ttl_seconds: int | None = None
     mfa_max_failed_attempts: int = _required_int_env("MFA_MAX_FAILED_ATTEMPTS", 5)
     mfa_lockout_duration_minutes: int = _required_int_env("MFA_LOCKOUT_DURATION_MINUTES", 15)
     mfa_challenge_ttl_seconds: int = _required_int_env("MFA_CHALLENGE_TTL_SECONDS", 120)
@@ -44,3 +50,24 @@ class GatewaySettings:
         p.strip() for p in os.getenv("TRUSTED_PROXIES", "").split(",") if p.strip()
     )
     fallback_step_up_threshold: float = float(os.getenv("FALLBACK_STEP_UP_THRESHOLD", "0.65"))
+    # Same discipline as trusted_proxies: empty by default (no browser origin
+    # trusted until explicitly configured), never a wildcard -- see
+    # CORSMiddleware wiring in main.py for why "*" is refused even as an
+    # option here.
+    cors_allowed_origins: frozenset[str] = frozenset(
+        o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()
+    )
+    # Attributes for the httpOnly refresh-token cookie (see app/routers/auth.py).
+    # httpOnly itself is NOT configurable -- it's hardcoded True at the
+    # set_cookie call site, non-negotiable. These two ARE, because they
+    # legitimately differ between dev and prod without any code change:
+    #   - dev (default): plain HTTP on localhost, dashboard (5173) and gateway
+    #     (8000) are cross-ORIGIN but same-SITE (SameSite ignores port), so
+    #     SameSite=Lax works and Secure must be False (no TLS on localhost).
+    #   - prod: dashboard and gateway sit on two distinct domains, which is
+    #     cross-SITE -- that requires SameSite=None, and browsers refuse
+    #     SameSite=None without Secure, which in turn requires HTTPS.
+    # Going to production is therefore a config change (set both env vars),
+    # never a code change.
+    refresh_cookie_secure: bool = _bool_env("REFRESH_COOKIE_SECURE", False)
+    refresh_cookie_samesite: str = os.getenv("REFRESH_COOKIE_SAMESITE", "lax")

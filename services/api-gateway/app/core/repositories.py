@@ -765,7 +765,16 @@ class MonitoringRepository:
 
         return [RiskTimelinePoint(created_at=row.timestamp, user_email=row.email, risk_score=row.risk_score) for row in rows]
 
-    async def get_alerts(self, *, limit: int) -> list[AlertRow]:
+    async def get_alerts(self, *, limit: int, window_minutes: int) -> list[AlertRow]:
+        # Bounded by time, not just count: opa_decision_log is the permanent
+        # audit trail (never pruned -- see CLAUDE.md), so an unwindowed "last
+        # N step_ups" would keep surfacing arbitrarily old rows as if they
+        # were current (this is exactly what happened with historical
+        # step_ups from before the /monitoring/* scoring exemption). The
+        # window matches /monitoring/stats's default so the two panels never
+        # visibly disagree about "now".
+        since = _window_since(window_minutes)
+
         step_up_join = opa_decision_log_table.outerjoin(
             users_table, opa_decision_log_table.c.user_id == users_table.c.user_id
         )
@@ -778,7 +787,7 @@ class MonitoringRepository:
                 opa_decision_log_table.c.risk_score,
             )
             .select_from(step_up_join)
-            .where(opa_decision_log_table.c.decision == "step_up")
+            .where(opa_decision_log_table.c.decision == "step_up", opa_decision_log_table.c.timestamp >= since)
             .order_by(opa_decision_log_table.c.timestamp.desc())
             .limit(limit)
         )
@@ -795,6 +804,7 @@ class MonitoringRepository:
                 event_anomaly_table.c.risk_score,
             )
             .select_from(anomaly_join)
+            .where(event_anomaly_table.c.timestamp >= since)
             .order_by(event_anomaly_table.c.timestamp.desc())
             .limit(limit)
         )

@@ -5,16 +5,20 @@ import base64
 import json
 import time
 from dataclasses import dataclass, field
+from http.client import IncompleteRead
 from types import SimpleNamespace
 from uuid import uuid4
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from fastapi import FastAPI
 
+from app.core.opa_client import OpaClient
 from app.core.redis_client import InMemoryRedis
 from app.core.settings import GatewaySettings
 from app.middleware.gateway import GatewayMiddleware, GatewayServices
 from app.schemas.authorization import OpaDecision
-from app.services.authorization import AuthorizationOutcome
+from app.services.authorization import AuthorizationOutcome, AuthorizationService
+from app.services.feature_vector import FeatureVectorService
 
 
 @dataclass(slots=True)
@@ -41,6 +45,42 @@ class FakeAuthorizationService:
     async def authorize(self, request, context):
         self.calls += 1
         return AuthorizationOutcome(decision=self.decision)
+
+
+@dataclass(slots=True)
+class RecordingRepository:
+    decisions: list = field(default_factory=list)
+    samples: list = field(default_factory=list)
+
+    async def write_decision(self, record):
+        self.decisions.append(record)
+
+    async def write_training_sample(self, record):
+        self.samples.append(record)
+
+
+@dataclass(slots=True)
+class RecordingScoringClient:
+    calls: int = 0
+
+    async def score(self, feature_vector):
+        self.calls += 1
+        raise AssertionError("scoring_client.score should not be reached in bootstrap mode")
+
+
+class FakeMidReadFailureResponse:
+    """Simulates a connection that drops partway through response.read()."""
+
+    status = 200
+
+    def read(self):
+        raise IncompleteRead(partial=b"", expected=64)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
 
 
 class FakeApp:
@@ -96,6 +136,7 @@ def _services(redis, recorder, authorization_service, private_key) -> GatewaySer
         redis_client=redis,
         event_logger=recorder,
         authorization_service=authorization_service,
+        feature_vector_service=FeatureVectorService(redis_client=redis),
         mfa_challenge_service=None,
         mfa_enrollment_service=None,
         auth_service=None,
@@ -287,5 +328,77 @@ def test_blacklisted_jti_still_rejected():
         )
 
         assert response.status_code == 401
+
+    asyncio.run(_run())
+
+
+class _FakeRouteAwareRequest(FakeRequest):
+    """FakeRequest + `.scope`, needed only when driving a real AuthorizationService: it calls
+    resolve_route_pattern(request), which does `route.matches(request.scope)` against
+    request.app.router.routes. FakeAuthorizationService (used by every other test in this file)
+    never reaches that code, so the shared FakeRequest is deliberately left without `.scope`."""
+
+    def __init__(self, app, *, method="GET", path="/documents/123", token=None, ip="10.0.0.9"):
+        super().__init__(app, method=method, path=path, token=token, ip=ip)
+        self.scope = {"type": "http", "method": method, "path": path, "headers": []}
+
+
+def test_opa_mid_read_connection_drop_returns_503_logs_event_never_calls_upstream(monkeypatch):
+    # Regression test for the IncompleteRead/HTTPException gap in OpaClient._decide_sync:
+    # a connection that drops partway through response.read() (truncated body, reset mid-stream)
+    # must resolve exactly like every other OPA transport failure -- 503 to the client, an
+    # opa_unavailable event logged, and the route handler never invoked -- not an uncaught
+    # exception falling through to a bare Starlette 500. Uses a REAL OpaClient/AuthorizationService
+    # (only urlopen is faked) so the fix in opa_client.py is actually exercised end-to-end.
+    async def _run():
+        redis = InMemoryRedis()
+        recorder = Recorder()
+        private_key = Ed25519PrivateKey.generate()
+
+        def fake_urlopen(request, timeout):
+            return FakeMidReadFailureResponse()
+
+        monkeypatch.setattr("app.core.opa_client.urlopen", fake_urlopen)
+
+        opa_client = OpaClient(base_url="http://opa:8181", decision_path="/v1/data/authz/decision", timeout_seconds=0.1)
+        repository = RecordingRepository()
+        authorization_service = AuthorizationService(
+            redis_client=redis,
+            opa_client=opa_client,
+            scoring_client=RecordingScoringClient(),
+            feature_vector_service=FeatureVectorService(redis_client=redis),
+            repository=repository,
+            settings=GatewaySettings(),
+        )
+        services = _services(redis, recorder, authorization_service, private_key)
+        # A real AuthorizationService (unlike FakeAuthorizationService used elsewhere in this
+        # file) calls resolve_route_pattern(request), which walks request.app.router.routes --
+        # FakeApp has no router, so this test needs a real FastAPI app with a matching route.
+        app = FastAPI()
+
+        @app.get("/documents/{document_id}")
+        async def _read_document(document_id: str):
+            return {"document_id": document_id}
+
+        app.state.gateway_services = services
+        token = _make_token(private_key, _claims())
+
+        call_next_calls = 0
+
+        async def _call_next_spy(request):
+            nonlocal call_next_calls
+            call_next_calls += 1
+            return SimpleNamespace(status_code=200)
+
+        response = await GatewayMiddleware(app=None).dispatch(
+            _FakeRouteAwareRequest(app, path="/documents/123", token=token), _call_next_spy
+        )
+
+        assert response.status_code == 503
+        assert json.loads(response.body)["detail"] == "authorization service unavailable"
+        assert call_next_calls == 0
+        assert any(item.event_type == "opa_unavailable" for item in recorder.items)
+        # decide() raised before repository.write_decision was ever reached.
+        assert repository.decisions == []
 
     asyncio.run(_run())

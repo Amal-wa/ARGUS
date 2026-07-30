@@ -92,7 +92,7 @@ def _settings(tmp_path: Path, **overrides) -> ValidatorSettings:
 
 def _dump_model(tmp_path: Path, version: str) -> None:
     rng_data = random.Random(0)
-    data = [[rng_data.gauss(0, 1) for _ in range(20)] for _ in range(100)]
+    data = [[rng_data.gauss(0, 1) for _ in range(16)] for _ in range(100)]
     model = IsolationForest(n_estimators=10, random_state=42)
     model.fit(data)
     joblib.dump(model, tmp_path / f"model_{version}.joblib")
@@ -105,7 +105,7 @@ def _raw_samples(count: int, *, with_production_score: bool, model_version: str 
         samples.append(
             RawSample(
                 trace_id=uuid.uuid4(),
-                feature_vector=[rng.gauss(0, 1) for _ in range(20)],
+                feature_vector=[rng.gauss(0, 1) for _ in range(16)],
                 risk_score=rng.uniform(0, 1) if with_production_score else None,
                 model_version=model_version if with_production_score else None,
             )
@@ -207,4 +207,10 @@ def test_compute_score_distribution_percentiles_on_known_input():
     assert distribution.max == 100.0
     assert distribution.p50 == pytest.approx(50.5, abs=0.5)
     assert distribution.p95 == pytest.approx(95.05, abs=0.5)
+    assert len(distribution.percentile_breakpoints) == 101
+    assert distribution.percentile_breakpoints == sorted(distribution.percentile_breakpoints)
+    assert distribution.percentile_breakpoints[0] == pytest.approx(distribution.min)
+    assert distribution.percentile_breakpoints[50] == pytest.approx(distribution.p50)
+    assert distribution.percentile_breakpoints[98] == pytest.approx(distribution.p98)
+    assert distribution.percentile_breakpoints[100] == pytest.approx(distribution.max)
     assert distribution.p98 == pytest.approx(98.02, abs=0.5)

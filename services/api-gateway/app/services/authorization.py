@@ -18,6 +18,26 @@ from app.services.feature_vector import FeatureVectorService
 
 logger = logging.getLogger(__name__)
 
+# /monitoring/* is the Argus dashboard's supervision plane, not business
+# traffic -- and scoring it against the IsolationForest is a category error,
+# not a borderline case. The model is trained on HUMAN traffic (15s-30min
+# inter-request intervals, /documents and /orders paths). The dashboard is a
+# MACHINE: ~5 req/2s, near-zero intervals, on paths never seen in training.
+# High frequency + short intervals + unseen paths is exactly the enumeration
+# signature the model is supposed to catch -- it correctly flags this traffic
+# as anomalous, and step-up on the dashboard's own polling then locks out the
+# very console meant to observe the system. Do not "fix" this by touching the
+# model or the threshold: the fix is to not score a machine against a
+# human baseline at all. Authentication (JWT), both rate limits, JTI
+# blacklist, and OPA authorization (admin-only RBAC) all stay fully active
+# for these routes -- only *scoring* and *training-set membership* are
+# exempted, not access control or traceability. See AuthorizationService.authorize.
+MONITORING_PATH_PREFIX = "/monitoring"
+
+
+def _is_monitoring_route(route_pattern: str) -> bool:
+    return route_pattern.startswith(MONITORING_PATH_PREFIX)
+
 
 @dataclass(slots=True)
 class AuthorizationOutcome:
@@ -41,38 +61,73 @@ class AuthorizationService:
 
         route_pattern = resolve_route_pattern(request)
         action = request_action(context.method)
+        is_monitoring_route = _is_monitoring_route(route_pattern)
 
         feature_vector = await self.feature_vector_service.build_vector(context)
-        await self.feature_vector_service.record_observation(context, route_pattern)
+        if not is_monitoring_route:
+            # Deliberately NOT called for /monitoring/*: recording this
+            # machine traffic into the admin's own read/write/path/IP
+            # sliding-window counters would distort the very feature vector
+            # used to score that admin's OTHER (human) activity later.
+            await self.feature_vector_service.record_observation(context, route_pattern)
 
-        active_model_version = await self.redis_client.get("model:active_version")
         risk_ctx = RiskScoreResult()
         threshold: float | None = None
-        if active_model_version is not None:
-            risk_ctx = await self.scoring_client.score(feature_vector)
-            raw_threshold = await self.redis_client.get("model:active_threshold")
-            if raw_threshold is None:
-                threshold = self.settings.fallback_step_up_threshold
-                logger.warning(
-                    "model:active_threshold missing while model:active_version=%s is active; "
-                    "falling back to configured threshold %.3f",
-                    active_model_version,
-                    threshold,
-                    extra={"model_version": active_model_version, "fallback_threshold": threshold},
-                )
-            else:
-                try:
-                    threshold = float(raw_threshold)
-                except ValueError:
+        if not is_monitoring_route:
+            active_model_version = await self.redis_client.get("model:active_version")
+            if active_model_version is not None:
+                risk_ctx = await self.scoring_client.score(feature_vector)
+                if risk_ctx.model_version is not None and risk_ctx.model_version != active_model_version:
+                    # isolation-forest hasn't hot-swapped to the just-promoted
+                    # version yet (poll lag, see model_store.poll_forever) --
+                    # model:active_threshold was already calibrated for the
+                    # NEW version, but this score was produced by the OLD one.
+                    # Comparing the two would be meaningless, so treat this
+                    # exactly like a missing threshold: fall back and warn,
+                    # never silently compare mismatched model/threshold pairs.
                     threshold = self.settings.fallback_step_up_threshold
                     logger.warning(
-                        "model:active_threshold %r is unparseable while model:active_version=%s is active; "
-                        "falling back to configured threshold %.3f",
-                        raw_threshold,
+                        "isolation-forest scored with model_version=%s but Gateway expected active "
+                        "model_version=%s (promotion in-flight?); falling back to configured threshold %.3f",
+                        risk_ctx.model_version,
                         active_model_version,
                         threshold,
-                        extra={"model_version": active_model_version, "fallback_threshold": threshold},
+                        extra={
+                            "scored_model_version": risk_ctx.model_version,
+                            "active_model_version": active_model_version,
+                            "fallback_threshold": threshold,
+                        },
                     )
+                else:
+                    raw_threshold = await self.redis_client.get("model:active_threshold")
+                    if raw_threshold is None:
+                        threshold = self.settings.fallback_step_up_threshold
+                        logger.warning(
+                            "model:active_threshold missing while model:active_version=%s is active; "
+                            "falling back to configured threshold %.3f",
+                            active_model_version,
+                            threshold,
+                            extra={"model_version": active_model_version, "fallback_threshold": threshold},
+                        )
+                    else:
+                        try:
+                            threshold = float(raw_threshold)
+                        except ValueError:
+                            threshold = self.settings.fallback_step_up_threshold
+                            logger.warning(
+                                "model:active_threshold %r is unparseable while model:active_version=%s is active; "
+                                "falling back to configured threshold %.3f",
+                                raw_threshold,
+                                active_model_version,
+                                threshold,
+                                extra={"model_version": active_model_version, "fallback_threshold": threshold},
+                            )
+        # is_monitoring_route: risk_ctx stays RiskScoreResult() (score=None)
+        # and threshold stays None -- OPA's bootstrap_mode (score == null)
+        # short-circuits to "allow" before the threshold comparison is ever
+        # reached, so step-up structurally cannot fire on these routes. No
+        # Rego change needed; see adaptive_access.rego's bootstrap_mode rule.
+        risk_ctx.threshold = threshold
 
         mfa_verified = context.is_post_step_up
         verified_marker = await self.redis_client.get(f"mfa:verified:{context.claims.subject}")
@@ -86,7 +141,7 @@ class AuthorizationService:
             risk_ctx={
                 "score": risk_ctx.risk_score,
                 "model_version": risk_ctx.model_version,
-                "threshold": threshold,
+                "threshold": risk_ctx.threshold,
             },
             mfa={"verified": mfa_verified},
             is_post_step_up=context.is_post_step_up,
@@ -113,7 +168,11 @@ class AuthorizationService:
         )
 
         if decision.decision == OpaDecision.ALLOW:
-            if not context.is_post_step_up:
+            # Contamination fix: /monitoring/* traffic must never enter the
+            # training set, even on ALLOW -- it's machine traffic and would
+            # pollute a set built from human behavior (see MONITORING_PATH_PREFIX
+            # comment above).
+            if not context.is_post_step_up and not is_monitoring_route:
                 await self.repository.write_training_sample(
                     TrainingSampleRecord(
                         trace_id=context.trace_id,

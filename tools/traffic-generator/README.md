@@ -135,7 +135,7 @@ afterward.
 
 ## Known, deliberate limitation: no time-of-day seasonality
 
-The 20-dim feature vector contains no absolute-time feature -- the model
+The 16-dim feature vector contains no absolute-time feature -- the model
 structurally cannot see the hour of day. Modelling day/night traffic shape in
 the generator would therefore be effort invisible to detection, so it isn't
 done. If an absolute-time feature is ever added to the vector, this would be

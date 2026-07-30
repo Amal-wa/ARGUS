@@ -51,3 +51,4 @@ class OpaDecisionResult(BaseModel):
 class RiskScoreResult(BaseModel):
     risk_score: float | None = None
     model_version: str | None = None
+    threshold: float | None = None

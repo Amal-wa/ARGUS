@@ -85,8 +85,13 @@ class FakeMonitoringRepository:
             rows = [r for r in rows if r.user_email == user_email]
         return [RiskTimelinePoint(created_at=r.created_at, user_email=r.user_email, risk_score=r.risk_score) for r in rows]
 
-    async def get_alerts(self, *, limit):
-        rows = sorted((r for r in self.records if r.decision == "step_up"), key=lambda r: r.created_at, reverse=True)
+    async def get_alerts(self, *, limit, window_minutes):
+        since = datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
+        rows = sorted(
+            (r for r in self.records if r.decision == "step_up" and r.created_at >= since),
+            key=lambda r: r.created_at,
+            reverse=True,
+        )
         rows = rows[:limit]
         return [
             AlertRow(type="step_up", created_at=r.created_at, user_email=r.user_email, resource=r.resource, risk_score=r.risk_score, trace_id=r.trace_id)
@@ -289,6 +294,48 @@ def test_alerts_returns_step_ups_most_recent_first():
         assert alerts[0]["trace_id"] == str(new_step_up.trace_id)
         assert alerts[0]["type"] == "step_up"
         assert alerts[1]["trace_id"] == str(old_step_up.trace_id)
+
+    asyncio.run(_run())
+
+
+def test_alerts_excludes_step_ups_outside_the_window():
+    async def _run():
+        stale_step_up = _record(decision="step_up", risk_score=0.95, minutes_ago=90)  # older than 60-min window
+        repo = FakeMonitoringRepository(records=[stale_step_up])
+
+        response = await get_alerts(_request(repository=repo), limit=50, window_minutes=60)
+
+        assert response["alerts"] == []
+
+    asyncio.run(_run())
+
+
+def test_alerts_includes_step_ups_inside_the_window():
+    async def _run():
+        recent_step_up = _record(decision="step_up", risk_score=0.95, minutes_ago=45)  # inside a 60-min window
+        repo = FakeMonitoringRepository(records=[recent_step_up])
+
+        response = await get_alerts(_request(repository=repo), limit=50, window_minutes=60)
+
+        assert len(response["alerts"]) == 1
+        assert response["alerts"][0]["trace_id"] == str(recent_step_up.trace_id)
+
+    asyncio.run(_run())
+
+
+def test_alerts_default_window_is_60_minutes():
+    async def _run():
+        # 90 minutes ago is outside the default window but would be inside a
+        # naively-large one -- this pins the default itself, not just that
+        # SOME window is applied.
+        stale_step_up = _record(decision="step_up", risk_score=0.95, minutes_ago=90)
+        recent_step_up = _record(decision="step_up", risk_score=0.95, minutes_ago=30)
+        repo = FakeMonitoringRepository(records=[stale_step_up, recent_step_up])
+
+        response = await get_alerts(_request(repository=repo), limit=50)  # window_minutes omitted
+
+        trace_ids = {a["trace_id"] for a in response["alerts"]}
+        assert trace_ids == {str(recent_step_up.trace_id)}
 
     asyncio.run(_run())
 

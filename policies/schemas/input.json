@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OPA authz input",
+  "description": "Mirrors app/schemas/authorization.py:OpaPolicyInput exactly -- the Gateway's OpaClient.decide() serializes this Pydantic model and POSTs it as {\"input\": ...} to /v1/data/authz/decision. Keep the two in sync.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["identity", "resource"],
+  "properties": {
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject", "role"],
+      "properties": {
+        "subject": { "type": "string", "description": "UUID, serialized as a string" },
+        "role": { "type": "string" }
+      }
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["http_method", "route", "action"],
+      "properties": {
+        "http_method": { "type": "string" },
+        "route": { "type": "string" },
+        "action": { "type": "string" }
+      }
+    },
+    "risk_ctx": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "score": { "anyOf": [{ "type": "number" }, { "type": "null" }] },
+        "model_version": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+        "threshold": { "anyOf": [{ "type": "number" }, { "type": "null" }] }
+      }
+    },
+    "mfa": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "verified": { "type": "boolean" }
+      }
+    },
+    "is_post_step_up": { "type": "boolean" },
+    "feature_vector": {
+      "type": "array",
+      "items": { "type": "number" }
+    }
+  }
+}

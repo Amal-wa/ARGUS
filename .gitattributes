@@ -1,0 +1,19 @@
+# No .gitattributes existed before this file -- line endings were left to
+# core.autocrlf (Git for Windows' installer default, core.autocrlf=true),
+# which normalizes to LF in the object store but converts to CRLF on
+# checkout, AND masks CRLF-vs-LF differences from `git status`/`git diff`.
+# That let three files under policies/ drift to CRLF in the working tree
+# (introduced by some tool/editor after checkout, not by git itself) while
+# git kept reporting "no changes" -- invisible to git, but fully visible to
+# byte-reading tools like `opa fmt`/`opa check`, which is what surfaced it.
+# Pinning eol=lf here makes checkout, not local editor/OS behavior, the
+# single source of truth for these file types.
+*.rego text eol=lf
+*.py   text eol=lf
+*.sh   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+
+# Never text-convert binary assets (self-hosted fonts under
+# services/dashboard/src/assets/fonts -- see CLAUDE.md).
+*.woff2 binary

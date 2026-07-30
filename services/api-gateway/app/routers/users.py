@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Literal
 from uuid import UUID
 
 from argon2 import PasswordHasher
@@ -11,16 +12,22 @@ router = APIRouter()
 
 _password_hasher = PasswordHasher()
 
+# Must match roles_table's seeded rows (FK target of users.role) and the role
+# set policies/authz/rbac.rego's rules switch on -- reject an invalid role
+# here, with a normal 422, rather than letting it reach the FK constraint and
+# surface as an unhandled IntegrityError (500).
+Role = Literal["reader", "editor", "admin"]
+
 
 class UserCreateRequest(BaseModel):
     email: str
     password: str
-    role: str
+    role: Role
 
 
 class UserUpdateRequest(BaseModel):
     email: str | None = None
-    role: str | None = None
+    role: Role | None = None
     is_active: bool | None = None
 
 

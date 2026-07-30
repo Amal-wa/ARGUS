@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.core.events import build_sqlalchemy_event_logger
@@ -101,6 +102,7 @@ def build_app(
         redis_client=redis_client,
         event_logger=event_logger,
         authorization_service=authorization_service,
+        feature_vector_service=feature_vector_service,
         mfa_challenge_service=mfa_challenge_service,
         mfa_enrollment_service=mfa_enrollment_service,
         auth_service=auth_service,
@@ -110,6 +112,51 @@ def build_app(
         monitoring_repository=monitoring_repository,
     )
     app.add_middleware(GatewayMiddleware)
+    # CORSMiddleware is added AFTER GatewayMiddleware on purpose. Starlette
+    # builds the middleware stack by wrapping in REVERSE add-order, so the
+    # LAST middleware added ends up OUTERMOST -- i.e. it sees every request
+    # first, before GatewayMiddleware. That's required here: a CORS preflight
+    # is an OPTIONS request with no Authorization header, and if
+    # GatewayMiddleware ran first it would 401 the preflight before
+    # CORSMiddleware ever got a chance to answer it (the browser would then
+    # report a CORS failure, masking the real 401). With CORSMiddleware
+    # outermost, it intercepts and answers every OPTIONS preflight directly
+    # -- GatewayMiddleware, and the JWT check inside it, never runs for
+    # those requests at all. For normal (non-preflight) requests,
+    # CORSMiddleware just adds the Access-Control-Allow-Origin header to
+    # whatever response GatewayMiddleware/the route produced (200, 401, 403,
+    # ... all get it) once the Origin header matches an allowed origin.
+    #
+    # allow_origins is never "*": combined with allow_credentials=True (needed
+    # so the dashboard's Authorization header survives the CORS check), a
+    # wildcard origin is a well-known anti-pattern -- it would let ANY site the
+    # browser visits call this API using the logged-in user's cookies/session
+    # (browsers refuse to combine "*" with credentialed requests in the spec,
+    # but some proxies/older behavior make relying on that refusal alone
+    # risky; the explicit allowlist is the actual control). cors_allowed_origins
+    # is empty by default -- same fail-closed discipline as trusted_proxies --
+    # so CORS is opt-in per deployment via CORS_ALLOWED_ORIGINS, never
+    # silently permissive.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(settings.cors_allowed_origins),
+        # allow_credentials=True is required for BOTH auth mechanisms the
+        # dashboard uses: the Authorization header on /monitoring/* (readable
+        # by JS, sent explicitly) and the httpOnly refresh cookie on /auth/*
+        # (never readable by JS, sent automatically by the browser only when
+        # the request is made with credentials: 'include' AND the request's
+        # origin is on this allowlist). Never allow_origins=["*"] -- see the
+        # comment below, and note it's doubly true now: with the cookie in
+        # play, a wildcard origin wouldn't just leak an Authorization header,
+        # it would let any site ride the logged-in admin's session cookie too.
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        # X-Requested-With is the CSRF header /auth/refresh and /auth/logout
+        # require (see app/routers/auth.py) -- it must be explicitly
+        # allow-listed here or the browser's preflight for those requests
+        # fails before the request is ever sent.
+        allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
+    )
     app.include_router(mfa_router)
     app.include_router(auth_router)
     app.include_router(documents_router)

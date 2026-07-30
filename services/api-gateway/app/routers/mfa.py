@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from urllib.parse import quote
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 
 from app.core.errors import MfaAlreadyEnrolledError
 from app.core.events import EventPayload
+from app.core.refresh_cookie import set_refresh_cookie
 from app.core.repositories import OpaDecisionRecord
 from app.schemas.authorization import OpaPolicyInput
 from app.services.mfa_challenge import MfaVerificationStatus
@@ -17,7 +18,7 @@ _OTP_ISSUER = "ZT-Gateway"
 
 
 @router.post("/mfa/enroll")
-async def enroll_mfa(request: Request):
+async def enroll_mfa(request: Request, response: Response):
     context = request.state.gateway_context
     services = request.app.state.gateway_services
 
@@ -35,6 +36,13 @@ async def enroll_mfa(request: Request):
     # way. No user is ever locked out by this endpoint.
     pair = await services.auth_service.issue_full_pair(context.claims.subject, context.claims.role)
 
+    # Same rule as POST /auth/login: the refresh token issued here is a full
+    # session credential exactly like a normal login's, so it gets the same
+    # httpOnly-cookie treatment, not a JSON body field -- `response` is
+    # FastAPI's injected mutable Response, whose headers are merged into the
+    # final response even though this handler returns a plain dict below.
+    set_refresh_cookie(response, pair.refresh_token, request)
+
     account = str(context.claims.subject)
     otpauth_uri = (
         f"otpauth://totp/{quote(_OTP_ISSUER)}:{quote(account)}"
@@ -44,7 +52,6 @@ async def enroll_mfa(request: Request):
         "secret": base32_secret,
         "otpauth_uri": otpauth_uri,
         "access_token": pair.access_token,
-        "refresh_token": pair.refresh_token,
         "token_type": "bearer",
         "expires_in": pair.expires_in,
     }
@@ -157,7 +164,11 @@ async def verify_mfa_challenge(request: Request):
             "route": challenge_context.resource,
             "action": challenge_context.action,
         },
-        risk_ctx={"score": challenge_context.risk_score, "model_version": challenge_context.model_version},
+        risk_ctx={
+            "score": challenge_context.risk_score,
+            "model_version": challenge_context.model_version,
+            "threshold": challenge_context.threshold,
+        },
         mfa={"verified": True},
         is_post_step_up=True,
     )

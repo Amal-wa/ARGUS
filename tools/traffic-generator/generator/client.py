@@ -17,7 +17,16 @@ class PersonaClient:
     POST /auth/login, holds the access token, refreshes via POST /auth/refresh
     on expiry/401. No hand-forged JWTs anywhere. Sends its persona's IP via
     X-Forwarded-For on every request (see README for why TRUSTED_PROXIES must
-    include the gateway's view of this generator)."""
+    include the gateway's view of this generator).
+
+    The refresh token is never held or read directly: /auth/login,
+    /mfa/enroll, and /auth/refresh all set it as an httpOnly cookie (see
+    app/routers/auth.py), and httpx.AsyncClient's default cookie jar persists
+    and resends it automatically across requests on this same client instance
+    -- exactly the behaviour a real browser gives the dashboard. That's also
+    why /auth/refresh needs the X-Requested-With CSRF header below: the
+    Gateway requires it on every cookie-authenticated call to that endpoint,
+    generator included."""
 
     def __init__(self, base_url: str, email: str, password: str, ip: str):
         self.email = email
@@ -25,8 +34,7 @@ class PersonaClient:
         self.ip = ip
         self._client = httpx.AsyncClient(base_url=base_url, timeout=10.0)
         self._access_token: str | None = None
-        self._refresh_token: str | None = None
-        self.stats = {"requests": 0, "status_counts": {}, "denies": 0, "refreshes": 0}
+        self.stats = {"requests": 0, "status_counts": {}, "denies": 0, "refreshes": 0, "step_ups": 0}
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -62,22 +70,17 @@ class PersonaClient:
             logger.warning("%s: was not pre-enrolled in MFA, auto-enrolled now", self.email)
 
         self._access_token = body["access_token"]
-        self._refresh_token = body["refresh_token"]
 
     async def _refresh(self) -> bool:
-        if self._refresh_token is None:
-            return False
         response = await self._client.post(
             "/auth/refresh",
-            json={"refresh_token": self._refresh_token},
-            headers={"X-Forwarded-For": self.ip},
+            headers={"X-Forwarded-For": self.ip, "X-Requested-With": "argus-dashboard"},
         )
         if response.status_code != 200:
             logger.warning("%s: refresh failed (%s), re-logging in", self.email, response.status_code)
             return False
         body = response.json()
         self._access_token = body["access_token"]
-        self._refresh_token = body["refresh_token"]
         self.stats["refreshes"] += 1
         return True
 
@@ -96,6 +99,23 @@ class PersonaClient:
         self.stats["status_counts"][response.status_code] = self.stats["status_counts"].get(response.status_code, 0) + 1
 
         if response.status_code == 401 and not _retried:
+            # A risk-based step-up 401 is NOT an expired/rejected token --
+            # see the dashboard's AuthContext.tsx for the same distinction
+            # ("this is exactly the bug from the first incident"). Unlike
+            # the dashboard, this generator's personas do hit scored business
+            # routes, so step_up_required is genuinely reachable once a model
+            # is promoted (see AuthorizationService.authorize). Refreshing
+            # here would burn the single-use refresh token for nothing --
+            # a new access token doesn't satisfy a step-up challenge, which
+            # needs a TOTP code this generator doesn't have -- and retrying
+            # would just re-401 silently, forever, on the same request.
+            try:
+                detail = response.json().get("detail")
+            except ValueError:
+                detail = None
+            if detail == "step_up_required":
+                self.stats["step_ups"] += 1
+                return response
             if not await self._refresh():
                 await self.login()
             return await self.request(method, path, json=json, ip_override=ip_override, _retried=True)

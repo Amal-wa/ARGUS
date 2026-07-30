@@ -97,11 +97,12 @@ async def get_risk_timeline(
 
 
 @router.get("/monitoring/alerts")
-async def get_alerts(request: Request, limit: int = DEFAULT_ALERTS_LIMIT):
+async def get_alerts(request: Request, limit: int = DEFAULT_ALERTS_LIMIT, window_minutes: int = DEFAULT_WINDOW_MINUTES):
     services = request.app.state.gateway_services
     limit = _clamp(limit, minimum=1, maximum=MAX_ALERTS_LIMIT)
+    window_minutes = _clamp(window_minutes, minimum=1, maximum=MAX_WINDOW_MINUTES)
 
-    alerts = await services.monitoring_repository.get_alerts(limit=limit)
+    alerts = await services.monitoring_repository.get_alerts(limit=limit, window_minutes=window_minutes)
     return {
         "alerts": [
             {

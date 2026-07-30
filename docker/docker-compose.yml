@@ -120,13 +120,40 @@ services:
       # traffic generator, fronted by one) sits in front of the gateway --
       # list that proxy's own IP (e.g. the Docker bridge/host IP), never a
       # permissive/wildcard value.
-      # 172.18.0.1 = this compose project's dmz_net bridge gateway -- the peer
-      # IP every host-originated request (curl, tools/traffic-generator/) is
-      # seen as when it reaches the gateway through the published port 8000
-      # (verified empirically; re-verify with a plain curl + a Redis
-      # `ratelimit:ip:*` scan if this network is ever recreated, since Docker
-      # can reassign the bridge subnet/gateway).
-      - TRUSTED_PROXIES=172.18.0.1
+      # BOTH of this compose project's own bridge gateways, comma-separated:
+      # api-gateway sits on both dmz_net (172.18.0.1) and internal_net
+      # (172.20.0.1), and on this Docker Desktop/Windows setup the
+      # host-published-port traffic (curl, tools/traffic-generator/) is NATed
+      # through whichever of the two Docker's userland-proxy happens to pick
+      # -- confirmed empirically 2026-07-26 to differ between container
+      # restarts even with everything else unchanged, not just across network
+      # recreation. Trusting both is a deliberate widening, not an oversight:
+      # both IPs are this same compose project's own Docker-managed bridge
+      # gateways (never reachable from outside the Docker host), so the
+      # security cost is negligible in this dev-only setup, and it removes the
+      # flakiness of picking just one. The subnets/gateways for both networks
+      # are now pinned via ipam below (not Docker-auto-assigned), so these two
+      # specific IPs stay valid across `docker compose down`/rebuilds -- if
+      # you ever change those ipam blocks, update this list to match.
+      - TRUSTED_PROXIES=172.18.0.1,172.20.0.1
+      # The Argus dashboard's origin (services/dashboard, served on 5173) --
+      # the ONLY browser origin allowed to call this API with credentials
+      # (see CORSMiddleware wiring in app/main.py). Keep this explicit and
+      # single-valued; never "*". Comma-separate if a second trusted origin
+      # is ever added (e.g. a deployed dashboard URL), but each entry must be
+      # a real, specific origin you intend to trust.
+      - CORS_ALLOWED_ORIGINS=http://localhost:5173
+      # Refresh-token cookie attributes (see app/routers/auth.py + CLAUDE.md).
+      # These are the DEV values -- localhost:5173 -> localhost:8000 is
+      # cross-origin but same-site (SameSite ignores port), so Lax works over
+      # plain HTTP with no certificate, and Secure must stay false (no TLS on
+      # localhost). PRODUCTION values (dashboard and gateway on two distinct
+      # domains -- cross-site): REFRESH_COOKIE_SECURE=true and
+      # REFRESH_COOKIE_SAMESITE=none (browsers refuse SameSite=None without
+      # Secure, so the two change together). This is a config-only change --
+      # never hardcode either value in code.
+      - REFRESH_COOKIE_SECURE=false
+      - REFRESH_COOKIE_SAMESITE=lax
       # See the volumes entry below: only meaningful for scripts/seed_users.py
       # and scripts/seed_business_data.py, not the running app.
       - SEED_MFA_SECRETS_PATH=/tools/traffic-generator/persona_secrets.json
@@ -208,6 +235,7 @@ services:
     profiles: ["jobs"]
     environment:
       DATABASE_URL: postgresql://postgres:admin@postgres:5432/zt_db
+      CANARY_BATCH_SIZE: "15000"
       REDIS_URL: redis://redis:6379/0
     depends_on:
       postgres:
@@ -272,35 +300,59 @@ services:
     # écrit dans event_anomaly (anomaly_type = 'behavioral'). Jamais exposé
     # au trafic client — reste en internal_net uniquement.
 
-  react-dashboard:
+  dashboard:
     build:
-      context: .
+      context: ../services/dashboard
       dockerfile: Dockerfile.dev
+    container_name: argus-dashboard
     ports:
       - "5173:5173"
     volumes:
-      - .:/app
+      - ../services/dashboard:/app
       - /app/node_modules
     develop:
       watch:
         - action: sync
-          path: .
+          path: ../services/dashboard
           target: /app
     environment:
       - CHOKIDAR_USEPOLLING=true
+      # Resolved by the BROWSER, not this container -- the dashboard is a
+      # client-side SPA that talks only to the Gateway's published port, per
+      # the "never touches the internal network directly" architecture rule.
+      # That's also why this service sits on monitoring_net only (see
+      # networks: below) and NOT dmz_net/internal_net: it doesn't need
+      # container-to-container reachability to the Gateway, only to serve
+      # its own JS bundle to the host browser.
+      - VITE_GATEWAY_URL=http://localhost:8000
     networks:
       - monitoring_net
-      - dmz_net
     depends_on:
       - api-gateway
 
 networks:
+  # Subnets/gateways pinned explicitly (rather than left to Docker's
+  # auto-assignment) so TRUSTED_PROXIES above stays valid across rebuilds --
+  # an auto-assigned bridge can get a different subnet each time the network
+  # is recreated, silently invalidating any hardcoded trusted-proxy IP.
   internal_net:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+          gateway: 172.20.0.1
   dmz_net:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16
+          gateway: 172.18.0.1
   monitoring_net:
     driver: bridge  # réseau virtuel isolé sur la machine hôte
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+          gateway: 172.21.0.1
 
 volumes:
   pgdata:

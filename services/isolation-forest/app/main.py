@@ -8,14 +8,22 @@ from typing import Annotated
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from app.model_store import REDIS_ACTIVE_VERSION_KEY, ModelStore, poll_forever
+from app.model_store import REDIS_ACTIVE_VERSION_KEY, ModelStore, poll_forever, read_score_calibration
 from app.settings import ScoringSettings
 
 logger = logging.getLogger(__name__)
 
+# Single source of truth for this service's expected vector shape -- must
+# match api-gateway's FeatureVectorService, the DB's chk_feature_vector_size
+# CHECK constraint, and ml-trainer's FEATURE_VECTOR_DIMENSIONS. Referenced
+# once here rather than repeating the literal in both Field bounds below.
+FEATURE_VECTOR_DIMENSIONS = 16
+
 
 class ScoreRequest(BaseModel):
-    feature_vector: Annotated[list[float], Field(min_length=20, max_length=20)]
+    feature_vector: Annotated[
+        list[float], Field(min_length=FEATURE_VECTOR_DIMENSIONS, max_length=FEATURE_VECTOR_DIMENSIONS)
+    ]
 
 
 class ScoreResponse(BaseModel):
@@ -60,8 +68,9 @@ def build_app(
             active_version = None
 
         if active_version is not None:
+            score_breakpoints = await read_score_calibration(redis_client)
             try:
-                store.load_version(active_version)
+                store.load_version(active_version, score_breakpoints=score_breakpoints)
                 logger.info("isolation-forest: loaded model version %s at startup", active_version)
             except Exception:
                 logger.exception(

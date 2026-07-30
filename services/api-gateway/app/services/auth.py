@@ -161,3 +161,15 @@ class AuthService:
             refresh_token=new_refresh_token,
             expires_in=self.settings.access_token_ttl_minutes * 60,
         )
+
+    async def logout(self, refresh_token: str) -> None:
+        """Revokes the whole token family the presented refresh token belongs
+        to -- the same revocation path reuse-detection uses (see `refresh`
+        above) -- so a logout can't be undone by an old, still-unexpired
+        refresh token surviving somewhere. A token that doesn't resolve to a
+        record (already expired/deleted/garbage) is a no-op: the caller's
+        goal (no live session) is already satisfied."""
+        token_hash = hash_refresh_token(refresh_token)
+        record = await self.refresh_token_repository.get(token_hash)
+        if record is not None:
+            await self.refresh_token_repository.revoke_family(record.family_id)

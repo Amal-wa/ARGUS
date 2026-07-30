@@ -8,6 +8,7 @@ import random
 import httpx
 
 from .attacks import (
+    build_scenario_rngs,
     scenario_a_resource_enumeration,
     scenario_b_password_spraying,
     scenario_c_session_hijack,
@@ -24,6 +25,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Zero Trust synthetic traffic generator (host-side tool, not a service)")
     parser.add_argument("--mode", choices=["normal", "attack"], default="normal")
     parser.add_argument("--scenario", choices=["A", "B", "C", "D"], default=None, help="required when --mode attack")
+    parser.add_argument(
+        "--profile",
+        choices=["baseline", "drifted"],
+        default="baseline",
+        help="usage profile (see generator/personas.py PROFILES) -- 'drifted' simulates a process shift for concept-drift testing, not an attack",
+    )
     parser.add_argument("--duration", type=float, default=None, help="seconds; omit to run until Ctrl-C")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--base-url", default="http://localhost:8000")
@@ -141,6 +148,7 @@ def _print_summary(clients: dict[str, PersonaClient]) -> None:
     total_requests = sum(c.stats["requests"] for c in clients.values())
     total_denies = sum(c.stats["denies"] for c in clients.values())
     total_refreshes = sum(c.stats["refreshes"] for c in clients.values())
+    total_step_ups = sum(c.stats["step_ups"] for c in clients.values())
     status_totals: dict[int, int] = {}
     for client in clients.values():
         for status, count in client.stats["status_counts"].items():
@@ -149,7 +157,10 @@ def _print_summary(clients: dict[str, PersonaClient]) -> None:
     print()
     print("=" * 70)
     print("SUMMARY")
-    print(f"total requests: {total_requests}   denies (403): {total_denies}   token refreshes: {total_refreshes}")
+    print(
+        f"total requests: {total_requests}   denies (403): {total_denies}   "
+        f"token refreshes: {total_refreshes}   step-ups (401): {total_step_ups}"
+    )
     print("status counts:", status_totals)
     print("per-persona:")
     for email, client in clients.items():
@@ -161,7 +172,12 @@ async def async_main(args: argparse.Namespace) -> None:
     if args.mode == "attack" and args.scenario is None:
         raise SystemExit("--scenario is required when --mode attack")
 
-    personas = build_personas(args.seed, args.password)
+    personas = build_personas(args.seed, args.password, args.profile)
+    # Independent, order-stable numpy Generator per attack scenario (see
+    # attacks.build_scenario_rngs) -- built unconditionally, and up front, so
+    # the scenario -> stream mapping never depends on which --scenario is
+    # actually selected below.
+    scenario_rngs = build_scenario_rngs(args.seed)
 
     print(f"Checking gateway reachability at {args.base_url} ...")
     await _check_gateway_reachable(args.base_url)
@@ -181,7 +197,7 @@ async def async_main(args: argparse.Namespace) -> None:
 
     print()
     print("=" * 70)
-    print(f"mode={args.mode}" + (f"  scenario={args.scenario}" if args.scenario else ""))
+    print(f"mode={args.mode}  profile={args.profile}" + (f"  scenario={args.scenario}" if args.scenario else ""))
     print(f"personas={len(personas)}  seed={args.seed}  duration={args.duration if args.duration else 'until Ctrl-C'}")
     sample_ips = ", ".join(f"{p.email}={p.ip}" for p in personas[:5])
     print(f"sample persona IPs: {sample_ips}{' ...' if len(personas) > 5 else ''}")
@@ -213,7 +229,9 @@ async def async_main(args: argparse.Namespace) -> None:
         attack_duration = args.duration or 300.0
         if args.scenario == "A":
             attack_task = asyncio.create_task(
-                scenario_a_resource_enumeration(actor_client, document_ids, duration_seconds=attack_duration, requests_per_minute=80)
+                scenario_a_resource_enumeration(
+                    actor_client, document_ids, scenario_rngs["A"], duration_seconds=attack_duration, requests_per_minute=80
+                )
             )
         elif args.scenario == "B":
             candidate_emails = [p.email for p in personas]
@@ -224,11 +242,15 @@ async def async_main(args: argparse.Namespace) -> None:
             )
         elif args.scenario == "C":
             attack_task = asyncio.create_task(
-                scenario_c_session_hijack(actor_client, document_ids, duration_seconds=attack_duration, requests_per_minute=20)
+                scenario_c_session_hijack(
+                    actor_client, document_ids, scenario_rngs["C"], duration_seconds=attack_duration, requests_per_minute=20
+                )
             )
         elif args.scenario == "D":
             attack_task = asyncio.create_task(
-                scenario_d_privilege_escalation(actor_client, document_ids, duration_seconds=attack_duration, requests_per_minute=20)
+                scenario_d_privilege_escalation(
+                    actor_client, document_ids, scenario_rngs["D"], duration_seconds=attack_duration, requests_per_minute=20
+                )
             )
 
     stop_timer_task: asyncio.Task | None = None

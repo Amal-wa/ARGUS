@@ -17,6 +17,7 @@ from app.core.settings import GatewaySettings
 from app.middleware.gateway import GatewayMiddleware, GatewayServices
 from app.schemas.authorization import OpaDecision
 from app.services.authorization import AuthorizationOutcome
+from app.services.feature_vector import FeatureVectorService
 
 # Section 3.b: verify the HTTP method-override attack surface is absent.
 #
@@ -114,6 +115,7 @@ def test_method_override_header_does_not_change_the_authorized_action():
             redis_client=redis,
             event_logger=recorder,
             authorization_service=authz,
+            feature_vector_service=FeatureVectorService(redis_client=redis),
             mfa_challenge_service=None,
             mfa_enrollment_service=None,
             auth_service=None,

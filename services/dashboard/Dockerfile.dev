@@ -1,0 +1,15 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+RUN npm install
+
+COPY . .
+
+EXPOSE 5173
+
+# --host so the Vite dev server accepts connections from outside the
+# container (Docker's loopback-only default would make the mapped port
+# unreachable from the host browser).
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]

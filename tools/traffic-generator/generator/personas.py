@@ -11,6 +11,31 @@ READER_COUNT = 15
 EDITOR_COUNT = 8
 ADMIN_COUNT = 2
 
+# Usage-profile ranges for the two ratio parameters that carry the concept
+# drift. Baseline is the range Phase 1 (calibration / v1 training) was
+# collected under -- unchanged from before profiles existed. "Drifted"
+# models a real process shift, NOT an attack: the editorial team moved from
+# a consultation-heavy workload to a production-heavy one (more writes), and
+# order handling grew as a share of activity (relatively fewer documents
+# touched, more orders). Deliberately NOT touched by either profile:
+# mean_interval_seconds and burst_probability (both still drawn from their
+# one, profile-independent distribution in _make_persona) -- a drift that
+# also raised request rate or path diversity would reproduce scenario A's
+# resource-enumeration signature and defeat the point of testing drift
+# separately from an attack.
+WRITE_RATIO_RANGE_BASELINE = (0.10, 0.30)
+WRITE_RATIO_RANGE_DRIFTED = (0.30, 0.50)
+DOCUMENT_RATIO_RANGE_BASELINE = (0.50, 0.85)
+DOCUMENT_RATIO_RANGE_DRIFTED = (0.30, 0.60)
+
+# Admin write_ratio (0.05, 0.20) is deliberately absent from here and stays a
+# fixed literal in _make_persona: the drift story is specifically the
+# EDITORIAL team's workload shift, not an org-wide one.
+PROFILES = {
+    "baseline": {"write_ratio": WRITE_RATIO_RANGE_BASELINE, "document_ratio": DOCUMENT_RATIO_RANGE_BASELINE},
+    "drifted": {"write_ratio": WRITE_RATIO_RANGE_DRIFTED, "document_ratio": DOCUMENT_RATIO_RANGE_DRIFTED},
+}
+
 
 @dataclass(slots=True)
 class Persona:
@@ -42,42 +67,54 @@ def persona_ip(index: int) -> str:
     return f"10.10.{index // 254}.{index % 254 + 1}"
 
 
-def build_personas(seed: int, password: str = SEED_USER_PASSWORD_DEFAULT) -> list[Persona]:
+def build_personas(seed: int, password: str = SEED_USER_PASSWORD_DEFAULT, profile: str = "baseline") -> list[Persona]:
+    if profile not in PROFILES:
+        raise ValueError(f"unknown profile {profile!r}; choose one of {sorted(PROFILES)}")
+    ranges = PROFILES[profile]
+
     rng = random.Random(seed)
     personas: list[Persona] = []
     index = 0
 
     for i in range(1, READER_COUNT + 1):
-        personas.append(_make_persona(index, f"reader{i}@zt.local", "reader", password, rng))
+        personas.append(_make_persona(index, f"reader{i}@zt.local", "reader", password, rng, ranges))
         index += 1
     for i in range(1, EDITOR_COUNT + 1):
-        personas.append(_make_persona(index, f"editor{i}@zt.local", "editor", password, rng))
+        personas.append(_make_persona(index, f"editor{i}@zt.local", "editor", password, rng, ranges))
         index += 1
     for i in range(1, ADMIN_COUNT + 1):
-        personas.append(_make_persona(index, f"admin{i}@zt.local", "admin", password, rng))
+        personas.append(_make_persona(index, f"admin{i}@zt.local", "admin", password, rng, ranges))
         index += 1
 
     return personas
 
 
-def _make_persona(index: int, email: str, role: str, password: str, rng: random.Random) -> Persona:
+def _make_persona(index: int, email: str, role: str, password: str, rng: random.Random, ranges: dict[str, tuple[float, float]]) -> Persona:
     # Wide lognormal spread: median ~e^5.0 =~ 148s, but the tails reach from
     # ~20s (a "greedy" persona) to well over 10 minutes (an occasional one).
+    # Unaffected by profile -- see PROFILES comment above.
     mean_interval = rng.lognormvariate(mu=5.0, sigma=1.2)
     mean_interval = max(15.0, min(mean_interval, 1800.0))
 
+    # Unaffected by profile -- see PROFILES comment above.
     burst_probability = rng.uniform(0.05, 0.3)
 
+    # random.Random.uniform(a, b) is exactly `a + (b-a) * self.random()` --
+    # ONE call to the underlying generator regardless of (a, b). So swapping
+    # in the drifted bounds here changes only the VALUE drawn for write_ratio
+    # itself; it does not change how many draws are consumed, which is what
+    # keeps every persona's identity/ip/mean_interval_seconds/
+    # burst_probability -- and every later persona's entire generation --
+    # bit-identical between profiles for the same seed. Admin's range is a
+    # fixed literal, not profile-dependent (see PROFILES comment above).
     write_ratio = 0.0
     if role == "editor":
-        write_ratio = rng.uniform(0.10, 0.30)
+        write_ratio = rng.uniform(*ranges["write_ratio"])
     elif role == "admin":
         write_ratio = rng.uniform(0.05, 0.20)
 
-    # 50/50 to 85/15 documents/orders -- some personas barely touch orders,
-    # others are near-evenly split; the spread between personas is itself a
-    # useful signal, same reasoning as mean_interval_seconds.
-    document_ratio = rng.uniform(0.50, 0.85)
+    # Same single-draw argument as write_ratio above applies here.
+    document_ratio = rng.uniform(*ranges["document_ratio"])
 
     return Persona(
         index=index,

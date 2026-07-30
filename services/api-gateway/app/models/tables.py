@@ -34,6 +34,7 @@ event_type_enum = Enum(
     "mfa_locked",
     "mfa_failed",
     "opa_unavailable",
+    "scoring_unavailable",
     "step_up_required",
     "challenge_expired",
     "totp_replay_detected",
@@ -113,6 +114,11 @@ events_table = Table(
     Column("error_code", Text, nullable=True),
     Column("error_message", Text, nullable=True),
     Column("event_type", event_type_enum, nullable=False),
+    # Audit-only: the email the caller supplied on a failed login, regardless of
+    # whether it was valid. Never an authz/rate-limit key -- lets a query group by
+    # (ip_address, attempted_email) to distinguish password spraying (many distinct
+    # accounts, one attempt each) from bruteforce (one account, repeated attempts).
+    Column("attempted_email", Text, nullable=True),
 )
 
 Index("idx_events_trace_id", events_table.c.trace_id)
@@ -174,7 +180,10 @@ ml_training_samples_table = Table(
     Column("risk_score", Float, nullable=True),
     Column("model_version", String(length=50), nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),
-    CheckConstraint("cardinality(feature_vector) = 20", name="chk_feature_vector_size"),
+    # 16, not 20 -- see alembic/versions/0009_feature_vector_16_dims.py: the
+    # feature vector was rebuilt from 6-of-16 implemented concepts to a fully
+    # implemented, fixed 16-dimension layout (app/services/feature_vector.py).
+    CheckConstraint("cardinality(feature_vector) = 16", name="chk_feature_vector_size"),
 )
 
 Index("idx_ml_training_trace", ml_training_samples_table.c.trace_id)
@@ -208,6 +217,7 @@ ml_model_registry_table = Table(
     Column("training_samples", Integer, nullable=False),
     Column("hyperparameters", JSONB, nullable=False),
     Column("score_distribution", JSONB, nullable=True),
+    Column("feature_dims", Integer, nullable=False),
     CheckConstraint("training_samples > 0", name="ck_ml_model_registry_training_samples"),
 )
 

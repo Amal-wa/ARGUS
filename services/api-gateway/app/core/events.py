@@ -26,6 +26,7 @@ class EventPayload:
     event_type: str
     error_code: str | None = None
     error_message: str | None = None
+    attempted_email: str | None = None
 
 
 class SqlAlchemyEventLogger:
@@ -47,6 +48,7 @@ class SqlAlchemyEventLogger:
                         error_code=payload.error_code,
                         error_message=payload.error_message,
                         event_type=payload.event_type,
+                        attempted_email=payload.attempted_email,
                     )
                 )
                 await session.commit()

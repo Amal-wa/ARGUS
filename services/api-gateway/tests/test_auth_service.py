@@ -384,6 +384,40 @@ def test_refresh_reuse_of_consumed_token_revokes_entire_family():
     asyncio.run(_run())
 
 
+def test_logout_revokes_the_presented_tokens_whole_family():
+    async def _run():
+        user = _user()
+        user_repo = FakeUserRepository(records_by_email={user.email: user})
+        refresh_repo = FakeRefreshTokenRepository()
+        service = _service(user_repository=user_repo, refresh_token_repository=refresh_repo)
+
+        family_id = uuid4()
+        token = "logout-token"
+        await refresh_repo.create(
+            hash_refresh_token(token), family_id, user.user_id, datetime.now(timezone.utc) + timedelta(days=7)
+        )
+
+        await service.logout(token)
+
+        for record in refresh_repo.records.values():
+            if record.family_id == family_id:
+                assert record.revoked is True
+
+    asyncio.run(_run())
+
+
+def test_logout_with_unknown_token_is_a_no_op():
+    async def _run():
+        refresh_repo = FakeRefreshTokenRepository()
+        service = _service(refresh_token_repository=refresh_repo)
+
+        await service.logout("never-issued-token")  # must not raise
+
+        assert refresh_repo.records == {}
+
+    asyncio.run(_run())
+
+
 def test_refresh_concurrent_calls_with_same_token_only_one_succeeds():
     async def _run():
         user = _user()

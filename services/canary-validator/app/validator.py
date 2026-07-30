@@ -60,8 +60,15 @@ class ScoreDistribution:
     p95: float
     p98: float
     max: float
+    # 101 values: np.percentile(scores, 0), np.percentile(scores, 1), ..., 100.
+    # The calibration reference isolation-forest interpolates a raw score
+    # against to get its percentile rank -- see model_store.percentile_calibrate.
+    # Redundant with min/p50/p95/p98/max above (those are exactly breakpoints
+    # at indices 0/50/95/98/100) but kept alongside them rather than derived,
+    # since those fields are also used standalone for reporting/comparisons.
+    percentile_breakpoints: list[float]
 
-    def to_dict(self) -> dict[str, float | int]:
+    def to_dict(self) -> dict[str, float | int | list[float]]:
         return {
             "samples_scored": self.samples_scored,
             "min": self.min,
@@ -69,6 +76,7 @@ class ScoreDistribution:
             "p95": self.p95,
             "p98": self.p98,
             "max": self.max,
+            "percentile_breakpoints": self.percentile_breakpoints,
         }
 
 
@@ -111,6 +119,11 @@ def score_feature_vector(model: IsolationForest, feature_vector: list[float]) ->
 
 def compute_score_distribution(scores: list[float]) -> ScoreDistribution:
     array = np.asarray(scores, dtype=float)
+    # 101 evenly-spaced integer percentiles (0..100) -- coarse enough to stay
+    # a small, easily-transported JSON array, fine enough that interpolation
+    # error between adjacent breakpoints is negligible relative to the
+    # calibration batch's own sampling noise.
+    breakpoints = np.percentile(array, np.arange(0, 101)).tolist()
     return ScoreDistribution(
         samples_scored=len(scores),
         min=float(np.min(array)),
@@ -118,6 +131,7 @@ def compute_score_distribution(scores: list[float]) -> ScoreDistribution:
         p95=float(np.percentile(array, 95)),
         p98=float(np.percentile(array, 98)),
         max=float(np.max(array)),
+        percentile_breakpoints=breakpoints,
     )
 
 

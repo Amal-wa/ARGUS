@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
+from http.client import HTTPException
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -45,19 +46,24 @@ class OpaClient:
                 raw = json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:
             raise OpaUnavailableError(f"OPA returned HTTP error {exc.code}") from exc
-        except (URLError, TimeoutError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        except (URLError, TimeoutError, HTTPException, json.JSONDecodeError, UnicodeDecodeError) as exc:
             raise OpaUnavailableError("OPA decision endpoint is unavailable") from exc
 
         result = raw.get("result", raw)
         if isinstance(result, dict):
+            # Checked before extracting defaults below: a missing "decision"
+            # key is also caught later by OpaDecision("") raising ValueError,
+            # but a missing "policy_name" alone would otherwise silently
+            # default to "default" instead of being treated as a malformed
+            # contract.
+            if "decision" not in result or "policy_name" not in result:
+                raise OpaUnavailableError("OPA response did not contain a decision contract")
             decision_value = str(result.get("decision", "")).upper()
             policy_name = str(result.get("policy_name", "default"))
             try:
                 decision = OpaDecision(decision_value)
             except ValueError as exc:
                 raise OpaUnavailableError(f"OPA returned unsupported decision {decision_value!r}") from exc
-            if "decision" not in result or "policy_name" not in result:
-                raise OpaUnavailableError("OPA response did not contain a decision contract")
             return OpaDecisionResult(
                 decision=decision,
                 policy_name=policy_name,

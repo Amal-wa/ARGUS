@@ -4,17 +4,19 @@ import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import json
+
 import joblib
 import numpy as np
 import pytest
 from sklearn.ensemble import IsolationForest
 
-from app.model_store import ModelStore, poll_once
+from app.model_store import ModelStore, percentile_calibrate, poll_once, risk_score_from_anomaly_score
 
 
 def _train_and_dump(models_dir: Path, version: str) -> None:
     rng = np.random.RandomState(42)
-    normal_data = rng.normal(loc=0.0, scale=1.0, size=(200, 20))
+    normal_data = rng.normal(loc=0.0, scale=1.0, size=(200, 16))
     model = IsolationForest(n_estimators=50, random_state=42)
     model.fit(normal_data)
     joblib.dump(model, models_dir / f"model_{version}.joblib")
@@ -41,8 +43,8 @@ def test_score_is_bounded_and_monotonic_for_anomalies(tmp_path):
     store = ModelStore(models_dir=tmp_path)
     store.load_version("v1")
 
-    normal_vector = [0.0] * 20
-    anomalous_vector = [50.0] * 20
+    normal_vector = [0.0] * 16
+    anomalous_vector = [50.0] * 16
 
     normal_score = store.score(normal_vector)
     anomalous_score = store.score(anomalous_vector)
@@ -86,7 +88,66 @@ def test_score_without_loaded_model_raises(tmp_path):
     store = ModelStore(models_dir=tmp_path)
 
     with pytest.raises(RuntimeError):
-        store.score([0.0] * 20)
+        store.score([0.0] * 16)
+
+
+def test_percentile_calibrate_interpolates_against_breakpoints():
+    breakpoints = [0.59, 0.60, 0.61, 0.63, 0.66]  # percentiles 0/25/50/75/100
+    assert percentile_calibrate(0.59, breakpoints) == pytest.approx(0.0)
+    assert percentile_calibrate(0.61, breakpoints) == pytest.approx(0.5)
+    assert percentile_calibrate(0.66, breakpoints) == pytest.approx(1.0)
+    # Halfway between the 50th and 75th breakpoints -> halfway between their ranks.
+    assert percentile_calibrate(0.62, breakpoints) == pytest.approx(0.625)
+
+
+def test_percentile_calibrate_clamps_outside_calibration_range():
+    # Live traffic can fall slightly outside what the calibration batch observed.
+    breakpoints = [0.59, 0.60, 0.61, 0.63, 0.66]
+    assert percentile_calibrate(0.50, breakpoints) == 0.0
+    assert percentile_calibrate(0.90, breakpoints) == 1.0
+
+
+def test_load_version_without_calibration_leaves_score_unscaled(tmp_path):
+    _train_and_dump(tmp_path, "v1")
+    store = ModelStore(models_dir=tmp_path)
+    store.load_version("v1")
+
+    assert store.calibration() is None
+    normal_vector = [0.0] * 16
+    model, _ = store.current()
+    expected_raw = risk_score_from_anomaly_score(
+        float(model.score_samples(np.asarray([normal_vector], dtype=float))[0])
+    )
+    assert store.score(normal_vector) == pytest.approx(expected_raw)
+
+
+def test_score_applies_calibration_when_present(tmp_path):
+    _train_and_dump(tmp_path, "v1")
+    uncalibrated = ModelStore(models_dir=tmp_path)
+    uncalibrated.load_version("v1")
+    normal_vector = [0.0] * 16
+    raw_score = uncalibrated.score(normal_vector)
+
+    # Calibrate so raw_score sits exactly at the top breakpoint -- the
+    # calibrated output must land at 1.0.
+    breakpoints = list(np.linspace(raw_score - 0.1, raw_score, num=101))
+    calibrated = ModelStore(models_dir=tmp_path)
+    calibrated.load_version("v1", score_breakpoints=breakpoints)
+
+    assert calibrated.score(normal_vector) == pytest.approx(1.0)
+
+
+def test_load_version_with_degenerate_calibration_falls_back_to_raw(tmp_path):
+    _train_and_dump(tmp_path, "v1")
+    uncalibrated = ModelStore(models_dir=tmp_path)
+    uncalibrated.load_version("v1")
+    normal_vector = [0.0] * 16
+    raw_score = uncalibrated.score(normal_vector)
+
+    degenerate = ModelStore(models_dir=tmp_path)
+    degenerate.load_version("v1", score_breakpoints=[0.6])  # single point, not a usable range
+
+    assert degenerate.score(normal_vector) == pytest.approx(raw_score)
 
 
 @dataclass(slots=True)
@@ -146,3 +207,59 @@ def test_poll_once_keeps_serving_old_model_on_failed_reload(tmp_path):
 
     _, version = store.current()
     assert version == "v1"
+
+
+def test_poll_once_reads_calibration_keys_on_version_change(tmp_path):
+    _train_and_dump(tmp_path, "v1")
+    store = ModelStore(models_dir=tmp_path)
+    breakpoints = list(np.linspace(0.59, 0.66, num=101))
+    redis = FakeRedis(
+        {
+            "model:active_version": "v1",
+            "model:active_score_breakpoints": json.dumps(breakpoints),
+        }
+    )
+
+    asyncio.run(poll_once(store, redis))
+
+    assert store.calibration() == pytest.approx(breakpoints)
+
+
+def test_poll_once_leaves_calibration_none_when_keys_absent(tmp_path):
+    _train_and_dump(tmp_path, "v1")
+    store = ModelStore(models_dir=tmp_path)
+    redis = FakeRedis({"model:active_version": "v1"})
+
+    asyncio.run(poll_once(store, redis))
+
+    assert store.calibration() is None
+
+
+def test_poll_once_ignores_malformed_json_calibration_key(tmp_path):
+    _train_and_dump(tmp_path, "v1")
+    store = ModelStore(models_dir=tmp_path)
+    redis = FakeRedis(
+        {
+            "model:active_version": "v1",
+            "model:active_score_breakpoints": "not-json",
+        }
+    )
+
+    asyncio.run(poll_once(store, redis))
+
+    assert store.calibration() is None
+
+
+def test_poll_once_ignores_non_monotonic_calibration_key(tmp_path):
+    _train_and_dump(tmp_path, "v1")
+    store = ModelStore(models_dir=tmp_path)
+    redis = FakeRedis(
+        {
+            "model:active_version": "v1",
+            "model:active_score_breakpoints": json.dumps([0.6, 0.5, 0.7]),  # not sorted
+        }
+    )
+
+    asyncio.run(poll_once(store, redis))
+
+    assert store.calibration() is None

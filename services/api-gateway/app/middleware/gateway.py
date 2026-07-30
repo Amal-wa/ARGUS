@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.events import EventPayload
-from app.core.errors import OpaUnavailableError
+from app.core.errors import OpaUnavailableError, ScoringUnavailableError
 from app.core.repositories import DocumentRepository, MonitoringRepository, OrderRepository, UserRepository
 from app.core.security import JWTVerificationError, JWTVerifier, extract_bearer_token
 from app.core.settings import GatewaySettings
@@ -17,6 +17,7 @@ from app.middleware.jti_blacklist import check_jti_blacklist
 from app.middleware.rate_limit import enforce_ip_rate_limit, enforce_user_rate_limit
 from app.services.auth import AuthService
 from app.services.authorization import AuthorizationService
+from app.services.feature_vector import FeatureVectorService
 from app.services.mfa_challenge import MfaChallengeService
 from app.services.mfa_enrollment import MfaEnrollmentService
 
@@ -24,10 +25,13 @@ from app.services.mfa_enrollment import MfaEnrollmentService
 #
 # 1. PUBLIC_PATHS           -> call_next immediately. No checks at all (e.g. /health).
 # 2. AUTH_PATHS             -> IP rate limit only, no JWT, no OPA. These endpoints
-#                              (/auth/login, /auth/refresh) are what ISSUES a JWT,
-#                              so they structurally cannot require one -- but an
-#                              unrated login endpoint is a brute-force target, so
-#                              IP rate limiting still applies.
+#                              (/auth/login, /auth/refresh, /auth/logout) are what
+#                              ISSUE/rotate/revoke a session, so they structurally
+#                              cannot require a (possibly already-expired) access
+#                              token -- refresh and logout authenticate off the
+#                              httpOnly refresh cookie instead (see routers/auth.py).
+#                              An unrated login endpoint is a brute-force target, so
+#                              IP rate limiting still applies to all three.
 # 3. GATEWAY_INTERNAL_PATHS -> full pre-OPA pipeline (JWT verify, user rate limit,
 #                              JTI blacklist) but skip OPA authorize. These belong
 #                              to the authentication/MFA plane, not the business
@@ -52,7 +56,7 @@ from app.services.mfa_enrollment import MfaEnrollmentService
 # detection), not on every request. check_jti_blacklist (immediate revocation)
 # is unaffected and still runs on every authenticated request.
 PUBLIC_PATHS = {"/health"}
-AUTH_PATHS = {"/auth/login", "/auth/refresh"}
+AUTH_PATHS = {"/auth/login", "/auth/refresh", "/auth/logout"}
 GATEWAY_INTERNAL_PATHS = {"/mfa/enroll", "/mfa/challenge/verify"}
 
 
@@ -63,6 +67,7 @@ class GatewayServices:
     redis_client: object
     event_logger: object
     authorization_service: AuthorizationService
+    feature_vector_service: FeatureVectorService
     mfa_challenge_service: MfaChallengeService
     mfa_enrollment_service: MfaEnrollmentService
     auth_service: AuthService
@@ -167,7 +172,12 @@ class GatewayMiddleware(BaseHTTPMiddleware):
 
         try:
             outcome = await services.authorization_service.authorize(request=request, context=context)
-        except OpaUnavailableError as exc:
+        except (OpaUnavailableError, ScoringUnavailableError) as exc:
+            # Distinct event_type per origin -- OPA and Isolation Forest are
+            # different services with different on-call owners, and collapsing
+            # a scoring outage into "opa_unavailable" would misdirect incident
+            # response toward OPA when isolation-forest is the one actually down.
+            event_type = "opa_unavailable" if isinstance(exc, OpaUnavailableError) else "scoring_unavailable"
             await services.event_logger.write(
                 EventPayload(
                     trace_id=context.trace_id,
@@ -177,8 +187,8 @@ class GatewayMiddleware(BaseHTTPMiddleware):
                     request_path=context.path,
                     latency_ms=context.latency_ms(),
                     http_status=503,
-                    event_type="opa_unavailable",
-                    error_code="opa_unavailable",
+                    event_type=event_type,
+                    error_code=event_type,
                     error_message=str(exc),
                 )
             )

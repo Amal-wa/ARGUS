@@ -5,7 +5,9 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
+import pytest
 from fastapi import FastAPI
+from pydantic import ValidationError
 
 from app.core.repositories import UserRecord
 from app.core.request_matching import resolve_route_pattern
@@ -164,6 +166,16 @@ def test_responses_never_leak_password_hash_or_lockout_state():
             assert "locked_until" not in payload
 
     asyncio.run(_run())
+
+
+def test_create_user_rejects_role_outside_roles_table():
+    with pytest.raises(ValidationError):
+        UserCreateRequest(email="a@zt.local", password="pw", role="superuser")
+
+
+def test_update_user_rejects_role_outside_roles_table():
+    with pytest.raises(ValidationError):
+        UserUpdateRequest(role="superuser")
 
 
 def test_route_pattern_resolves_to_parameterized_path():

@@ -39,6 +39,7 @@ class ChallengeContext:
     ip_address: str
     risk_score: float | None
     model_version: str | None
+    threshold: float | None
 
     def to_json(self) -> str:
         return json.dumps(
@@ -53,6 +54,7 @@ class ChallengeContext:
                 "ip_address": self.ip_address,
                 "risk_score": self.risk_score,
                 "model_version": self.model_version,
+                "threshold": self.threshold,
             }
         )
 
@@ -70,6 +72,7 @@ class ChallengeContext:
             ip_address=data["ip_address"],
             risk_score=data["risk_score"],
             model_version=data["model_version"],
+            threshold=data.get("threshold"),
         )
 
 
@@ -106,6 +109,7 @@ class MfaChallengeService:
             ip_address=context.ip_address,
             risk_score=risk_ctx.risk_score,
             model_version=risk_ctx.model_version,
+            threshold=risk_ctx.threshold,
         )
         await self.redis_client.set(
             f"challenge:{challenge_id}",

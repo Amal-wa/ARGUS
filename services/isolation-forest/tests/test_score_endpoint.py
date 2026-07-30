@@ -23,7 +23,7 @@ class FakeRedis:
 
 def _train_and_dump(models_dir: Path, version: str) -> None:
     rng = np.random.RandomState(0)
-    normal_data = rng.normal(size=(200, 20))
+    normal_data = rng.normal(size=(200, 16))
     model = IsolationForest(n_estimators=50, random_state=0)
     model.fit(normal_data)
     joblib.dump(model, models_dir / f"model_{version}.joblib")
@@ -42,7 +42,7 @@ def test_score_endpoint_with_loaded_model_returns_valid_shape(tmp_path):
     app = _build(tmp_path, preloaded_version="v1")
 
     with TestClient(app) as client:
-        response = client.post("/score", json={"feature_vector": [0.0] * 20})
+        response = client.post("/score", json={"feature_vector": [0.0] * 16})
 
     assert response.status_code == 200
     body = response.json()
@@ -59,11 +59,24 @@ def test_score_endpoint_wrong_length_returns_422(tmp_path):
     assert response.status_code == 422
 
 
+def test_score_endpoint_old_20_dim_vector_now_rejected(tmp_path):
+    # Proves the cardinality propagation is complete on this service: a
+    # vector built under the OLD (pre-rebuild) 20-dimension layout must be
+    # rejected, not silently accepted/mis-scored, now that the contract is 16.
+    _train_and_dump(tmp_path, "v1")
+    app = _build(tmp_path, preloaded_version="v1")
+
+    with TestClient(app) as client:
+        response = client.post("/score", json={"feature_vector": [0.0] * 20})
+
+    assert response.status_code == 422
+
+
 def test_score_endpoint_no_model_returns_503(tmp_path):
     app = _build(tmp_path)
 
     with TestClient(app) as client:
-        response = client.post("/score", json={"feature_vector": [0.0] * 20})
+        response = client.post("/score", json={"feature_vector": [0.0] * 16})
 
     assert response.status_code == 503
     assert response.json()["detail"] == "no model loaded"

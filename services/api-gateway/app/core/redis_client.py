@@ -13,6 +13,8 @@ class RedisLike(Protocol):
 
     async def expire(self, key: str, seconds: int) -> bool: ...
 
+    async def ttl(self, key: str) -> int: ...
+
     async def exists(self, key: str) -> bool: ...
 
     async def get(self, key: str) -> str | None: ...
@@ -35,7 +37,6 @@ class RedisLike(Protocol):
 @dataclass(slots=True)
 class _RedisEntry:
     value: Any
-    expires_at: datetime | None = None
 
 
 @dataclass(slots=True)
@@ -43,16 +44,21 @@ class InMemoryRedis:
     _strings: dict[str, _RedisEntry] = field(default_factory=dict)
     _sets: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set))
     _sorted_sets: dict[str, dict[str, float]] = field(default_factory=lambda: defaultdict(dict))
+    # Expiry is tracked per-key here rather than inside _RedisEntry, since sets
+    # and sorted sets need it too, not just strings -- real Redis EXPIRE
+    # applies to a key regardless of its type.
+    _expires_at: dict[str, datetime] = field(default_factory=dict)
 
     def _now(self) -> datetime:
         return datetime.now(timezone.utc)
 
     def _purge_expired(self, key: str) -> None:
-        entry = self._strings.get(key)
-        if entry and entry.expires_at is not None and entry.expires_at <= self._now():
+        expires_at = self._expires_at.get(key)
+        if expires_at is not None and expires_at <= self._now():
             self._strings.pop(key, None)
             self._sets.pop(key, None)
             self._sorted_sets.pop(key, None)
+            self._expires_at.pop(key, None)
 
     async def ping(self) -> bool:
         return True
@@ -62,17 +68,28 @@ class InMemoryRedis:
         entry = self._strings.get(key)
         current = int(entry.value) if entry is not None else 0
         current += 1
-        self._strings[key] = _RedisEntry(str(current), entry.expires_at if entry else None)
+        self._strings[key] = _RedisEntry(str(current))
         return current
 
     async def expire(self, key: str, seconds: int) -> bool:
         self._purge_expired(key)
         if key not in self._strings and key not in self._sets and key not in self._sorted_sets:
             return False
-        expires_at = self._now() + timedelta(seconds=seconds)
-        if key in self._strings:
-            self._strings[key].expires_at = expires_at
+        self._expires_at[key] = self._now() + timedelta(seconds=seconds)
         return True
+
+    async def ttl(self, key: str) -> int:
+        """Mirrors real Redis's TTL command: -2 if the key doesn't exist, -1
+        if it exists with no expiry, otherwise seconds remaining (rounded
+        down). Lets tests assert a key carries an expiry without reaching
+        into this fake's private storage."""
+        self._purge_expired(key)
+        if key not in self._strings and key not in self._sets and key not in self._sorted_sets:
+            return -2
+        expires_at = self._expires_at.get(key)
+        if expires_at is None:
+            return -1
+        return max(0, int((expires_at - self._now()).total_seconds()))
 
     async def exists(self, key: str) -> bool:
         self._purge_expired(key)
@@ -87,10 +104,13 @@ class InMemoryRedis:
         self._purge_expired(key)
         if nx and await self.exists(key):
             return False
-        expires_at = self._now() + timedelta(seconds=ex) if ex is not None else None
-        self._strings[key] = _RedisEntry(value, expires_at)
+        self._strings[key] = _RedisEntry(value)
         self._sets.pop(key, None)
         self._sorted_sets.pop(key, None)
+        if ex is not None:
+            self._expires_at[key] = self._now() + timedelta(seconds=ex)
+        else:
+            self._expires_at.pop(key, None)
         return True
 
     async def delete(self, key: str) -> int:
@@ -99,6 +119,7 @@ class InMemoryRedis:
         self._strings.pop(key, None)
         self._sets.pop(key, None)
         self._sorted_sets.pop(key, None)
+        self._expires_at.pop(key, None)
         return 1 if existed else 0
 
     async def sadd(self, key: str, *members: str) -> int:

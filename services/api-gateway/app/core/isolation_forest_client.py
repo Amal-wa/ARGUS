@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
-from app.core.errors import OpaUnavailableError
+from app.core.errors import ScoringUnavailableError
 from app.schemas.authorization import RiskScoreResult
 
 
@@ -44,7 +44,7 @@ class IsolationForestClient:
             with urlopen(request, timeout=10) as response:
                 raw = json.loads(response.read().decode("utf-8"))
         except (URLError, TimeoutError, json.JSONDecodeError) as exc:
-            raise OpaUnavailableError("Isolation Forest scoring endpoint is unavailable") from exc
+            raise ScoringUnavailableError("Isolation Forest scoring endpoint is unavailable") from exc
 
         return RiskScoreResult(
             risk_score=raw.get("risk_score"),

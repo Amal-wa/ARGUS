@@ -1,0 +1,124 @@
+// Mirrors services/api-gateway/app/routers/monitoring.py and routers/auth.py
+// response shapes exactly -- keep these two in sync by hand (no shared schema
+// package across the Python/TS boundary).
+
+export type Decision = "allow" | "deny" | "step_up";
+
+export interface LoginSuccess {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  // No refresh_token field -- it travels only as an httpOnly cookie (see
+  // services/api-gateway/app/routers/auth.py), never in a JSON body JS can
+  // read.
+}
+
+export interface LoginEnrollmentRequired {
+  enrollment_token: string;
+  token_type: string;
+  mfa_enrollment_required: true;
+}
+
+export type LoginResponse = LoginSuccess | LoginEnrollmentRequired;
+
+export function isEnrollmentRequired(body: LoginResponse): body is LoginEnrollmentRequired {
+  return "mfa_enrollment_required" in body && body.mfa_enrollment_required === true;
+}
+
+export interface StatsResponse {
+  total_decisions: number;
+  allow: number;
+  deny: number;
+  step_up: number;
+  allow_rate: number;
+  active_users: number;
+  distinct_ips: number;
+  window_minutes: number;
+}
+
+export interface DecisionRow {
+  trace_id: string;
+  created_at: string;
+  user_id: string;
+  user_email: string | null;
+  resource: string;
+  action: string;
+  decision: Decision;
+  policy_name: string;
+  risk_score: number | null;
+  model_version: string | null;
+  ip_address: string;
+}
+
+export interface DecisionsResponse {
+  decisions: DecisionRow[];
+}
+
+export interface RiskTimelinePoint {
+  created_at: string;
+  user_email: string | null;
+  risk_score: number | null;
+}
+
+export interface RiskTimelineResponse {
+  threshold: number | null;
+  points: RiskTimelinePoint[];
+}
+
+export type AlertType = "step_up" | "anomaly";
+
+export interface AlertRow {
+  type: AlertType;
+  created_at: string;
+  user_email: string | null;
+  resource: string | null;
+  risk_score: number | null;
+  trace_id: string | null;
+}
+
+export interface AlertsResponse {
+  alerts: AlertRow[];
+}
+
+export type ServiceHealthValue = "healthy" | "unhealthy" | "up" | "down";
+
+export interface SystemStatusResponse {
+  active_model: string | null;
+  active_threshold: number | null;
+  candidate_model: string | null;
+  training_samples: number | null;
+  model_trained_at: string | null;
+  score_distribution: Record<string, number> | null;
+  services: {
+    isolation_forest: ServiceHealthValue;
+    opa: ServiceHealthValue;
+    redis: ServiceHealthValue;
+    postgres: ServiceHealthValue;
+  };
+}
+
+export interface AuditRow {
+  id: number;
+  trace_id: string;
+  created_at: string;
+  user_id: string;
+  user_email: string | null;
+  role: string;
+  resource: string;
+  action: string;
+  ip_address: string;
+  risk_score: number | null;
+  model_version: string | null;
+  is_anomaly: string;
+  decision: Decision;
+  policy_name: string;
+  reason: string | null;
+  latency_ms: number;
+}
+
+export interface AuditResponse {
+  rows: AuditRow[];
+  page: number;
+  page_size: number;
+  total: number;
+}

@@ -1,3 +1,7 @@
+# METADATA
+# description: RBAC input shape is checked against policies/schemas/input.json via `opa check --schema`.
+# schemas:
+#   - input: schema["input"]
 package authz.rbac
 
 default allow := false
@@ -9,7 +13,7 @@ default allow := false
 # a real privilege escalation). This must be checked ahead of, and independently
 # of, the general rules.
 users_route if {
-    startswith(input.resource.route, "/users")
+	startswith(input.resource.route, "/users")
 }
 
 # /monitoring/* is the security-dashboard read surface: decision feeds, risk
@@ -18,43 +22,43 @@ users_route if {
 # not fall through to the general read rule below, which would hand it to
 # readers/editors too.
 monitoring_route if {
-    startswith(input.resource.route, "/monitoring")
+	startswith(input.resource.route, "/monitoring")
 }
 
 allow if {
-    users_route
-    input.identity.role == "admin"
+	users_route
+	input.identity.role == "admin"
 }
 
 allow if {
-    monitoring_route
-    input.identity.role == "admin"
+	monitoring_route
+	input.identity.role == "admin"
 }
 
 allow if {
-    not users_route
-    not monitoring_route
-    input.resource.action == "read"
-    input.identity.role in {"reader", "editor", "admin"}
+	not users_route
+	not monitoring_route
+	input.resource.action == "read"
+	input.identity.role in {"reader", "editor", "admin"}
 }
 
 allow if {
-    not users_route
-    not monitoring_route
-    input.resource.action == "create"
-    input.identity.role in {"editor", "admin"}
+	not users_route
+	not monitoring_route
+	input.resource.action == "create"
+	input.identity.role in {"editor", "admin"}
 }
 
 allow if {
-    not users_route
-    not monitoring_route
-    input.resource.action == "update"
-    input.identity.role in {"editor", "admin"}
+	not users_route
+	not monitoring_route
+	input.resource.action == "update"
+	input.identity.role in {"editor", "admin"}
 }
 
 allow if {
-    not users_route
-    not monitoring_route
-    input.resource.action == "delete"
-    input.identity.role == "admin"
+	not users_route
+	not monitoring_route
+	input.resource.action == "delete"
+	input.identity.role == "admin"
 }

@@ -77,7 +77,7 @@ def _settings(tmp_path: Path, **overrides) -> TrainerSettings:
     return TrainerSettings(**defaults)
 
 
-def _synthetic_samples(count: int, *, dims: int = 20) -> list[TrainingSample]:
+def _synthetic_samples(count: int, *, dims: int = 16) -> list[TrainingSample]:
     rng = np.random.RandomState(0)
     now = datetime.now(timezone.utc)
     return [
@@ -154,6 +154,14 @@ def test_malformed_feature_vector_raises_and_writes_nothing(tmp_path):
 
 def test_validate_feature_vectors_accepts_correct_shape():
     validate_feature_vectors(_synthetic_samples(5))
+
+
+def test_validate_feature_vectors_rejects_old_20_dim_samples():
+    # Proves the cardinality propagation is complete here too: a sample built
+    # under the OLD (pre-rebuild) 20-dimension layout must be rejected, not
+    # silently trained on, now that the contract is 16.
+    with pytest.raises(ValueError, match="expected 16"):
+        validate_feature_vectors(_synthetic_samples(5, dims=20))
 
 
 def test_trained_model_is_reproducible_with_fixed_random_state():

@@ -20,6 +20,14 @@ MODEL_FILENAME_TEMPLATE = "model_{version}.joblib"
 
 CANDIDATE_VERSION_KEY = "model:candidate_version"
 
+# Single source of truth for this service's expected vector shape -- must
+# match api-gateway's FeatureVectorService (16 dims), the DB's
+# chk_feature_vector_size CHECK constraint, and isolation-forest's
+# ScoreRequest validation. Referenced once here rather than repeating the
+# literal, so a future change to the vector's dimensionality only needs
+# updating in one place per service.
+FEATURE_VECTOR_DIMENSIONS = 16
+
 _VERSION_PATTERN = re.compile(r"^v(\d+)$")
 
 
@@ -57,7 +65,12 @@ class MlTrainerRepository(Protocol):
     ) -> str:
         """Computes the next version (MAX over existing registry rows + 1) and
         inserts the registry row in a single transaction, so two concurrent
-        training runs can never claim the same version. Returns the new version."""
+        training runs can never both succeed in claiming the same version --
+        the primary key stays unique, but the second run raises an uncaught
+        IntegrityError rather than failing gracefully. Not a real-world risk
+        (this is a scheduled job, profiles: ["jobs"], not meant to run
+        concurrently with itself) but the guarantee is data integrity, not a
+        clean failure mode. Returns the new version."""
         ...
 
 
@@ -72,10 +85,10 @@ def next_version_from_existing(existing_versions: list[str]) -> str:
 
 def validate_feature_vectors(samples: list[TrainingSample]) -> None:
     for sample in samples:
-        if len(sample.feature_vector) != 20:
+        if len(sample.feature_vector) != FEATURE_VECTOR_DIMENSIONS:
             raise ValueError(
                 f"malformed training sample: feature_vector has {len(sample.feature_vector)} dims, "
-                f"expected 20 (created_at={sample.created_at})"
+                f"expected {FEATURE_VECTOR_DIMENSIONS} (created_at={sample.created_at})"
             )
 
 
