@@ -26,3 +26,6 @@ redis_data/
 # IDE
 .vscode/
 .idea/
+
+# Markdown docs / reports (kept on disk, not versioned)
+*.md
