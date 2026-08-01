@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "behavioral-detector"
+version = "0.1.0"
+description = "Zero Trust behavioral anomaly detector -- periodic rule-based scan over Redis sliding-window features"
+authors = ["Amel Ben Khalifa <amel.benkhalifa@supcom.tn>"]
+packages = [{ include = "app" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+sqlalchemy = "^2.0.0"
+psycopg2-binary = "^2.9.0"
+redis = "^5.0.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

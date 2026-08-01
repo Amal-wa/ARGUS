@@ -157,7 +157,19 @@ event_anomaly_table = Table(
     "event_anomaly",
     metadata,
     Column("id", BigInteger, primary_key=True),
-    Column("id_log", BigInteger, ForeignKey("opa_decision_log.id", ondelete="RESTRICT"), nullable=False),
+    # Nullable: 'authentication' anomalies (password spraying) are detected
+    # from pre-auth failed logins, which never produce an opa_decision_log
+    # row to reference -- see 0013_event_anomaly_id_log_nullable. The other
+    # 3 anomaly_type values always have a real decision and keep setting this.
+    Column("id_log", BigInteger, ForeignKey("opa_decision_log.id", ondelete="RESTRICT"), nullable=True),
+    # The stable identity behavioral-detector deduplicates on: user_id (text)
+    # for resource_access/network/authorization, the attacker IP for
+    # authentication. Deliberately separate from id_log (see that column's
+    # comment) -- id_log is an audit reference to a specific decision and is
+    # NULL for authentication; subject is set for all 4 anomaly_type values
+    # and is what "is this the same ongoing anomaly as last scan?" checks
+    # against, via idx_event_anomaly_subject below. See 0014_event_anomaly_subject.
+    Column("subject", Text, nullable=False),
     Column("timestamp", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),
     Column("anomaly_type", anomaly_type_enum, nullable=False),
     Column("risk_score", Float, nullable=False),
@@ -170,6 +182,12 @@ Index("idx_event_anomaly_timestamp", event_anomaly_table.c.timestamp.desc())
 Index("idx_event_anomaly_type", event_anomaly_table.c.anomaly_type)
 Index("idx_event_anomaly_severity", event_anomaly_table.c.severity)
 Index("idx_event_anomaly_log", event_anomaly_table.c.id_log)
+Index(
+    "idx_event_anomaly_subject",
+    event_anomaly_table.c.anomaly_type,
+    event_anomaly_table.c.subject,
+    event_anomaly_table.c.timestamp,
+)
 
 ml_training_samples_table = Table(
     "ml_training_samples",
