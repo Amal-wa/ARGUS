@@ -13,9 +13,17 @@ class SqlBehavioralDetectorRepository:
         self._engine = engine
 
     def latest_decision_id(self, user_id: str) -> int | None:
+        # Excludes /monitoring/* so an admin polling the Argus dashboard
+        # around the same time doesn't become the audit reference for an
+        # anomaly that has nothing to do with that poll -- id_log should
+        # point at the request the anomaly is actually about.
         with self._engine.connect() as connection:
             row = connection.execute(
-                text("SELECT id FROM opa_decision_log WHERE user_id = :user_id ORDER BY timestamp DESC LIMIT 1"),
+                text(
+                    "SELECT id FROM opa_decision_log "
+                    "WHERE user_id = :user_id AND resource NOT LIKE '/monitoring%' "
+                    "ORDER BY timestamp DESC LIMIT 1"
+                ),
                 {"user_id": user_id},
             ).first()
         return None if row is None else row.id

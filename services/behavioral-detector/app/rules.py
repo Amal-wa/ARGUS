@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Callable, Protocol
+
+logger = logging.getLogger(__name__)
 
 # The 4 Redis structures this job reads are ALL written by
 # api-gateway/app/services/feature_vector.py, on the SAME 300s sliding window
@@ -181,7 +184,7 @@ def scan_authentication(redis_client: RedisLike, threshold: int) -> list[Anomaly
                 severity=_severity_for(risk_score),
                 risk_score=risk_score,
                 contributing_features={
-                    "distinct_accounts_targeted": count,
+                    "distinct_accounts_targeted_5min": count,
                     "threshold": threshold,
                     "attacker_ip": attacker_ip,
                 },
@@ -192,14 +195,40 @@ def scan_authentication(redis_client: RedisLike, threshold: int) -> list[Anomaly
     return records
 
 
+def _run_rule(anomaly_type: str, scan: Callable[[], list[AnomalyRecord]]) -> list[AnomalyRecord]:
+    # Each rule is isolated: a single rule raising (a transient Redis hiccup,
+    # a bad env-configured threshold, corrupted data) must not cancel the
+    # other 3 for this tick. Before this, all 4 scan_* calls were chained in
+    # one Python expression -- one exception anywhere silently dropped every
+    # rule's results for that scan, and main.py's try/except only logs at the
+    # whole-tick level, so this could go unnoticed indefinitely.
+    try:
+        return scan()
+    except Exception:
+        logger.exception("behavioral-detector: %s scan failed, skipping this rule for this tick", anomaly_type)
+        return []
+
+
 def run_detection_scan(repository: BehavioralDetectorRepository, redis_client: RedisLike, settings) -> ScanReport:
     report = ScanReport()
 
     candidates = (
-        scan_resource_access(redis_client, repository, settings.resource_access_threshold)
-        + scan_authentication(redis_client, settings.authentication_threshold)
-        + scan_network(redis_client, repository, settings.network_threshold)
-        + scan_authorization(redis_client, repository, settings.authorization_threshold)
+        _run_rule(
+            "resource_access",
+            lambda: scan_resource_access(redis_client, repository, settings.resource_access_threshold),
+        )
+        + _run_rule(
+            "authentication",
+            lambda: scan_authentication(redis_client, settings.authentication_threshold),
+        )
+        + _run_rule(
+            "network",
+            lambda: scan_network(redis_client, repository, settings.network_threshold),
+        )
+        + _run_rule(
+            "authorization",
+            lambda: scan_authorization(redis_client, repository, settings.authorization_threshold),
+        )
     )
     report.anomalies_found = len(candidates)
 

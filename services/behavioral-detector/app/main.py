@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from pathlib import Path
 
 from redis import Redis
 from sqlalchemy import create_engine
@@ -24,6 +25,10 @@ def scan_once(repository, redis_client, settings: DetectorSettings) -> None:
     )
 
 
+def _touch_heartbeat(path: str) -> None:
+    Path(path).touch()
+
+
 def main() -> None:
     settings = DetectorSettings()
     engine = create_engine(settings.database_url)
@@ -40,6 +45,10 @@ def main() -> None:
             # one tick must not kill the whole container. Same philosophy as
             # isolation-forest's poll_once: log and keep serving/scanning.
             logger.exception("behavioral-detector: scan failed, will retry next tick")
+        # Touched every iteration regardless of outcome -- this reports "the
+        # loop is still alive", not "the scan succeeded" (that distinction
+        # already lives in the log line above and in event_anomaly).
+        _touch_heartbeat(settings.heartbeat_file)
         time.sleep(settings.scan_interval_seconds)
 
 

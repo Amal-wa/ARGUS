@@ -6,6 +6,7 @@ import pytest
 
 from app.rules import (
     AnomalyRecord,
+    RESOURCE_ACCESS_PATTERN,
     ScanReport,
     run_detection_scan,
     scan_authentication,
@@ -20,8 +21,13 @@ from app.settings import DetectorSettings
 class FakeRedis:
     strings: dict[str, str] = field(default_factory=dict)
     sets: dict[str, set[str]] = field(default_factory=dict)
+    # Patterns that raise instead of scanning -- simulates a transient Redis
+    # failure (or any other exception) hitting a single rule's SCAN call.
+    broken_patterns: frozenset[str] = frozenset()
 
     def scan_iter(self, match: str):
+        if match in self.broken_patterns:
+            raise ConnectionError("simulated Redis failure")
         prefix = match.rstrip("*")
         for key in list(self.strings) + list(self.sets):
             if key.startswith(prefix):
@@ -154,7 +160,7 @@ def test_scan_authentication_flags_at_threshold_with_no_id_log():
     assert records[0].id_log is None
     assert records[0].subject == "198.51.100.7"
     assert records[0].contributing_features == {
-        "distinct_accounts_targeted": 2,
+        "distinct_accounts_targeted_5min": 2,
         "threshold": 2,
         "attacker_ip": "198.51.100.7",
     }
@@ -275,3 +281,24 @@ def test_run_detection_scan_is_noop_on_empty_redis():
     report = run_detection_scan(FakeRepository(), FakeRedis(), _settings())
 
     assert report == ScanReport(anomalies_found=0, anomalies_written=0, anomalies_deduplicated=0)
+
+
+def test_run_detection_scan_isolates_a_failing_rule_from_the_others():
+    # Regression test: the 4 scan_* calls used to be chained in a single
+    # Python expression, so an exception raised by ANY one of them (a
+    # transient Redis error, a corrupted value, a misconfigured threshold)
+    # silently cancelled the other 3 for that entire tick. Here
+    # resource_access's SCAN blows up but network must still be detected and
+    # written.
+    redis = FakeRedis(
+        sets={"distinct_ips:user:u2": {"10.10.0.1", "203.0.113.9"}},
+        broken_patterns=frozenset({RESOURCE_ACCESS_PATTERN}),
+    )
+    repository = FakeRepository(decision_ids={"u2": 2})
+    settings = _settings()
+
+    report = run_detection_scan(repository, redis, settings)
+
+    assert report.anomalies_found == 1
+    assert report.anomalies_written == 1
+    assert {r.anomaly_type for r in repository.written} == {"network"}
