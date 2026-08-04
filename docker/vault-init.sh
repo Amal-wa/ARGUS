@@ -69,7 +69,54 @@ json_field() {
   sed -n "s/^[[:space:]]*\"$2\": \"\(.*\)\",\{0,1\}\$/\1/p" "$1"
 }
 
+# Sanity check after every PEM extraction: `json_field` (no jq, just sed) has
+# no way to signal "didn't match anything" other than printing an empty
+# string, and `set -e` doesn't catch a command that "succeeds" with the wrong
+# (empty) output. Without this, a broken extraction silently writes an empty
+# cert/key file, provisioning still reports success, and the failure only
+# surfaces later, and confusingly, as OPA crash-looping on a corrupt key --
+# caught while building this: fail here, at the source, instead.
+require_pem() {
+  # $1 = file, $2 = marker substring (e.g. "CERTIFICATE" or "PRIVATE KEY")
+  if [ ! -s "$1" ] || ! grep -q "$2" "$1"; then
+    echo "ERROR: $1 is missing or does not look like a valid PEM (no '$2' marker)." >&2
+    echo "This usually means the Vault JSON response shape changed, or extraction failed silently." >&2
+    exit 1
+  fi
+}
+
+# The certs volume (file-based idempotency) and Vault's own pki mount
+# (server-side state) are two independent sources of truth that must be
+# reset together -- nothing enforces that automatically. Caught live: after
+# manually clearing the certs volume without also resetting Vault's pki
+# mount (or vice versa), the script would otherwise proceed to either
+# re-generate a root CA on top of an already-initialized mount, or skip
+# generation while genuinely missing cert files -- both silently wrong.
+# Refuse to guess; make the operator reconcile them explicitly.
+pki_enabled=false
 if vault secrets list -format=json | grep -q '"pki/"'; then
+  pki_enabled=true
+fi
+certs_exist=false
+if [ -f "$CERTS_DIR/ca.pem" ]; then
+  certs_exist=true
+fi
+
+if [ "$pki_enabled" = true ] && [ "$certs_exist" = false ]; then
+  echo "ERROR: Vault's pki secrets engine is already enabled, but $CERTS_DIR/ca.pem is missing." >&2
+  echo "The mtls-certs volume and Vault's pki mount are out of sync (one was reset without the other)." >&2
+  echo "Fix: run 'vault secrets disable pki' against this Vault instance, then re-run this script." >&2
+  exit 1
+fi
+if [ "$pki_enabled" = false ] && [ "$certs_exist" = true ]; then
+  echo "ERROR: $CERTS_DIR/ca.pem exists, but Vault's pki secrets engine is not enabled." >&2
+  echo "The mtls-certs volume and Vault's pki mount are out of sync (Vault was reset -- dev mode,"
+  echo "in-memory storage -- without also clearing the mtls-certs volume)." >&2
+  echo "Fix: clear the mtls-certs volume contents, then re-run this script." >&2
+  exit 1
+fi
+
+if [ "$pki_enabled" = true ]; then
   echo "pki engine already enabled, skipping."
 else
   echo "Enabling pki engine..."
@@ -77,13 +124,15 @@ else
   vault secrets tune -max-lease-ttl="$CA_TTL" pki
 fi
 
-if [ -f "$CERTS_DIR/ca.pem" ]; then
+if [ "$certs_exist" = true ]; then
   echo "Internal CA already issued, skipping root generation."
 else
   echo "Generating internal root CA..."
   vault write -field=certificate pki/root/generate/internal \
     common_name="ZT-project internal CA" \
     ttl="$CA_TTL" > "$CERTS_DIR/ca.pem"
+  require_pem "$CERTS_DIR/ca.pem" "CERTIFICATE"
+  chmod 644 "$CERTS_DIR/ca.pem"
 fi
 
 # Two roles, not one shared role: a server cert (OPA) and a client cert
@@ -125,6 +174,8 @@ else
   printf '%b\n' "$(json_field /tmp/opa-issue.json certificate)" > "$CERTS_DIR/opa-server.pem"
   printf '%b\n' "$(json_field /tmp/opa-issue.json private_key)" > "$CERTS_DIR/opa-server-key.pem"
   rm -f /tmp/opa-issue.json
+  require_pem "$CERTS_DIR/opa-server.pem" "CERTIFICATE"
+  require_pem "$CERTS_DIR/opa-server-key.pem" "PRIVATE KEY"
   chmod 644 "$CERTS_DIR/opa-server.pem"
   # 644, not 600: this file is written as root (this container) but read by
   # the opa container, which runs as uid 1000 (verified via `docker inspect
@@ -144,6 +195,8 @@ else
   printf '%b\n' "$(json_field /tmp/gateway-issue.json certificate)" > "$CERTS_DIR/gateway-client.pem"
   printf '%b\n' "$(json_field /tmp/gateway-issue.json private_key)" > "$CERTS_DIR/gateway-client-key.pem"
   rm -f /tmp/gateway-issue.json
+  require_pem "$CERTS_DIR/gateway-client.pem" "CERTIFICATE"
+  require_pem "$CERTS_DIR/gateway-client-key.pem" "PRIVATE KEY"
   chmod 644 "$CERTS_DIR/gateway-client.pem"
   chmod 644 "$CERTS_DIR/gateway-client-key.pem"  # same reasoning as opa-server-key.pem above
 fi
