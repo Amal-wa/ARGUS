@@ -63,6 +63,10 @@ services:
         condition: service_healthy
     volumes:
       - ./vault-init.sh:/vault-init.sh:ro
+      # The only writer: issues the CA + the two mTLS leaf certs (see
+      # vault-init.sh) into this shared volume for opa/api-gateway to mount
+      # read-only below.
+      - mtls-certs:/certs
     entrypoint: ["/bin/sh", "/vault-init.sh"]
     networks:
       - internal_net
@@ -72,13 +76,22 @@ services:
     image: openpolicyagent/opa:1.18.1
     container_name: opa
     restart: unless-stopped
+    depends_on:
+      vault-init:
+        condition: service_completed_successfully
     command: >
       run
       --server
-      --addr http://0.0.0.0:8181
+      --addr https://0.0.0.0:8181
+      --tls-cert-file /certs/opa-server.pem
+      --tls-private-key-file /certs/opa-server-key.pem
+      --tls-ca-cert-file /certs/ca.pem
+      --authentication=tls
+      --min-tls-version 1.3
       /policy
     volumes:
       - ../policies:/policy:ro
+      - mtls-certs:/certs:ro
     networks:
       - internal_net
     read_only: true
@@ -87,8 +100,10 @@ services:
     security_opt:
       - no-new-privileges:true
     healthcheck:
-      # Corrigé : le protocole doit correspondre à --addr http:// ci-dessus,
-      # sinon le healthcheck échoue systématiquement même si OPA fonctionne.
+      # opa eval is a local CLI evaluation, not an HTTP call -- unaffected by
+      # the https/mTLS switch above (verified: `opa run --help` shows
+      # --authentication/--tls-* are server flags, this healthcheck never
+      # touches the server at all).
       test: ["CMD", "opa", "eval", "--fail", "1"]
       interval: 15s
       timeout: 5s
@@ -113,7 +128,14 @@ services:
       - REDIS_URL=redis://redis:6379
       - VAULT_ADDR=http://vault:8200
       - VAULT_TOKEN=dev-root-token
-      - OPA_URL=http://opa:8181
+      - OPA_URL=https://opa:8181
+      # mTLS Gateway<->OPA: the Gateway's own client cert/key (issued by
+      # vault-init.sh's gateway-client PKI role) and the internal CA it uses
+      # to verify OPA's server cert -- same CA that signed OPA's cert, since
+      # both leaves come from the one root generated in vault-init.sh.
+      - OPA_CLIENT_CERT_PATH=/certs/gateway-client.pem
+      - OPA_CLIENT_KEY_PATH=/certs/gateway-client-key.pem
+      - OPA_CA_CERT_PATH=/certs/ca.pem
       - ISOLATION_FOREST_URL=http://isolation-forest:8001
       # Empty by default: X-Forwarded-For is ignored unless the DIRECT peer is
       # listed here. Only add an entry when a real reverse proxy (or the
@@ -179,6 +201,7 @@ services:
       # instead of inside the ephemeral --rm container (where it would vanish
       # on exit). See SEED_MFA_SECRETS_PATH below.
       - ../tools/traffic-generator:/tools/traffic-generator
+      - mtls-certs:/certs:ro
     # --no-proxy-headers: uvicorn's OWN X-Forwarded-For handling is enabled by
     # default and trusts 127.0.0.1 out of the box -- that silently rewrites
     # scope["client"] before our app-level resolve_client_ip (TRUSTED_PROXIES
@@ -361,3 +384,5 @@ volumes:
     driver: local
   models-volume:
     driver: local  # partagé entre isolation-forest, canary-validator, ml-trainer
+  mtls-certs:
+    driver: local  # CA + certs mTLS Gateway<->OPA, écrits une fois par vault-init.sh

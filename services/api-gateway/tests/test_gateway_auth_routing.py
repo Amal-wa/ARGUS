@@ -355,7 +355,7 @@ def test_opa_mid_read_connection_drop_returns_503_logs_event_never_calls_upstrea
         recorder = Recorder()
         private_key = Ed25519PrivateKey.generate()
 
-        def fake_urlopen(request, timeout):
+        def fake_urlopen(request, timeout, context=None):
             return FakeMidReadFailureResponse()
 
         monkeypatch.setattr("app.core.opa_client.urlopen", fake_urlopen)

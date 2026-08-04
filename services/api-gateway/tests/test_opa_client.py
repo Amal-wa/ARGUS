@@ -47,7 +47,7 @@ def test_opa_client_raises_unavailable_on_malformed_response(monkeypatch):
         }
     )
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, context=None):
         return FakeHTTPResponse(200, json.dumps({"result": {"decision": "UNKNOWN"}}))
 
     monkeypatch.setattr("app.core.opa_client.urlopen", fake_urlopen)
@@ -68,7 +68,7 @@ def test_opa_client_raises_unavailable_on_string_result(monkeypatch):
         }
     )
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, context=None):
         return FakeHTTPResponse(200, json.dumps({"result": "deny"}))
 
     monkeypatch.setattr("app.core.opa_client.urlopen", fake_urlopen)
@@ -91,7 +91,7 @@ def test_opa_client_wraps_payload_in_input_key(monkeypatch):
     )
     captured_request = {}
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, context=None):
         captured_request["request"] = request
         return FakeHTTPResponse(200, json.dumps({"result": {"decision": "allow", "policy_name": "risk_allow"}}))
 
@@ -117,7 +117,7 @@ def test_opa_client_raises_unavailable_on_connection_failure(monkeypatch):
         }
     )
 
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, context=None):
         raise URLError("connection refused")
 
     monkeypatch.setattr("app.core.opa_client.urlopen", fake_urlopen)

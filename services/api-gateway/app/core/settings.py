@@ -26,8 +26,16 @@ class GatewaySettings:
     vault_token: str = os.getenv("VAULT_TOKEN", "dev-root-token")
     vault_transit_key_name: str = os.getenv("VAULT_TRANSIT_KEY_NAME", "gateway-jwt")
     vault_totp_key_name: str = os.getenv("VAULT_TOTP_KEY_NAME", "totp-encryption")
-    opa_url: str = os.getenv("OPA_URL", "http://opa:8181")
+    opa_url: str = os.getenv("OPA_URL", "https://opa:8181")
     opa_decision_path: str = os.getenv("OPA_DECISION_PATH", "/v1/data/authz/decision")
+    # mTLS Gateway<->OPA (see CLAUDE.md's OPA bundle section): the Gateway's
+    # own client cert/key and the internal CA used to verify OPA's server
+    # cert, all issued by vault-init.sh's PKI role into the mtls-certs
+    # volume. Only read/used when opa_url is https:// -- see
+    # core/opa_client.build_opa_ssl_context and its call site in main.py.
+    opa_client_cert_path: str = os.getenv("OPA_CLIENT_CERT_PATH", "/certs/gateway-client.pem")
+    opa_client_key_path: str = os.getenv("OPA_CLIENT_KEY_PATH", "/certs/gateway-client-key.pem")
+    opa_ca_cert_path: str = os.getenv("OPA_CA_CERT_PATH", "/certs/ca.pem")
     isolation_forest_url: str = os.getenv("ISOLATION_FOREST_URL", "http://isolation-forest:8001")
     isolation_forest_score_path: str = os.getenv("ISOLATION_FOREST_SCORE_PATH", "/score")
     jwt_issuer: str = os.getenv("JWT_ISSUER", "zt-api-gateway")
