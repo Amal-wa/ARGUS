@@ -792,7 +792,16 @@ class MonitoringRepository:
             .limit(limit)
         )
 
-        anomaly_join = event_anomaly_table.join(
+        # outerjoin, not join: event_anomaly.id_log is NULL by design for the
+        # authentication anomaly type (password spraying is detected pre-auth,
+        # so there is structurally no opa_decision_log row to reference -- see
+        # CLAUDE.md's Data layer section). An inner join here silently dropped
+        # every authentication anomaly from this endpoint's result set --
+        # found via a cross-service audit tracing event_anomaly from its
+        # writer (behavioral-detector) to every reader, since neither service
+        # is wrong in isolation (id_log's nullability is deliberate; this join
+        # was just never updated to account for it).
+        anomaly_join = event_anomaly_table.outerjoin(
             opa_decision_log_table, event_anomaly_table.c.id_log == opa_decision_log_table.c.id
         ).outerjoin(users_table, opa_decision_log_table.c.user_id == users_table.c.user_id)
         anomaly_stmt = (
@@ -802,6 +811,7 @@ class MonitoringRepository:
                 users_table.c.email,
                 opa_decision_log_table.c.resource,
                 event_anomaly_table.c.risk_score,
+                event_anomaly_table.c.subject,
             )
             .select_from(anomaly_join)
             .where(event_anomaly_table.c.timestamp >= since)
@@ -821,7 +831,13 @@ class MonitoringRepository:
             for row in step_up_rows
         ] + [
             AlertRow(
-                type="anomaly", created_at=row.timestamp, user_email=row.email, resource=row.resource,
+                type="anomaly", created_at=row.timestamp, user_email=row.email,
+                # resource is NULL exactly when id_log is (authentication --
+                # no decision to join to, see the outerjoin comment above);
+                # subject is the attacker IP for that one anomaly type, so
+                # the alert stays meaningful instead of showing a blank
+                # resource for the one attack type that has no route to show.
+                resource=row.resource if row.resource is not None else row.subject,
                 risk_score=row.risk_score, trace_id=row.trace_id,
             )
             for row in anomaly_rows
