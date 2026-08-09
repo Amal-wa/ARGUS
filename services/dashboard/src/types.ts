@@ -122,3 +122,33 @@ export interface AuditResponse {
   page_size: number;
   total: number;
 }
+
+// Mirrors _serialize_event_audit_row in routers/monitoring.py -- the
+// `events` table (gateway-level events: rate limits, auth failures, step-up
+// challenges), a DIFFERENT audit view from AuditRow above (which is
+// opa_decision_log). Selected via /monitoring/audit's `event_type` query
+// param -- see AuditQuery.eventType in api/monitoring.ts.
+export interface EventAuditRow {
+  id: number;
+  trace_id: string;
+  created_at: string;
+  // Unlike AuditRow, there is no users_table join on this query -- pre-auth
+  // failures (e.g. auth_failed) have no verified identity yet, so this is
+  // the raw user_id (or null), never an email.
+  user_id: string | null;
+  ip_address: string;
+  http_method: string;
+  request_path: string;
+  latency_ms: number;
+  http_status: number;
+  error_code: string | null;
+  error_message: string | null;
+  event_type: string;
+}
+
+export interface EventAuditResponse {
+  rows: EventAuditRow[];
+  page: number;
+  page_size: number;
+  total: number;
+}

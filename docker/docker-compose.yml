@@ -317,6 +317,29 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # Reads HEARTBEAT_FILE/SCAN_INTERVAL_SECONDS from THIS SAME service's own
+    # environment (not hardcoded separately) so the check can never drift
+    # from what DetectorSettings actually resolves. Same "3x the interval"
+    # staleness multiplier as isolation-forest's /health heartbeat check.
+    # This mechanism (settings.py's heartbeat_file, touched every loop
+    # iteration by _touch_heartbeat regardless of scan success/failure) has
+    # existed since this service was built, but nothing ever wired a
+    # healthcheck to read it -- Docker reported this container "healthy" as
+    # long as the process was merely running, even if the scan loop itself
+    # had hung. Same category of gap already fixed on isolation-forest.
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import os, sys, time; p = os.environ.get('HEARTBEAT_FILE', '/tmp/behavioral-detector-heartbeat'); i = int(os.environ.get('SCAN_INTERVAL_SECONDS', '60')); sys.exit(0 if os.path.exists(p) and time.time() - os.path.getmtime(p) < i * 3 else 1)\"",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      # Must exceed one full SCAN_INTERVAL_SECONDS (60s default) so the
+      # container isn't marked unhealthy before the very first scan tick has
+      # had a chance to touch the heartbeat file at all.
+      start_period: 90s
     networks:
       - internal_net
     # Job asynchrone à fenêtre glissante : lit events/opa_decision_log + Redis,

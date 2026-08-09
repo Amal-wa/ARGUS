@@ -56,7 +56,15 @@ export function usePollingSchedule(
       });
     };
 
-    const kickoff = setTimeout(tick, initialDelayMs);
+    // Assigned to the same `timer` variable `tick` itself uses for its
+    // recurring schedule (not a separate `kickoff` var) -- so onVisibility
+    // below always has the one true pending timer to cancel, whether that's
+    // this initial stagger delay or a later tick's delay. A separate
+    // `kickoff` var here previously went uncancelled by onVisibility: a tab
+    // loaded in the background and then focused before initialDelayMs
+    // elapsed fired both the early visibility-triggered tick() AND the
+    // original kickoff's tick() moments later -- a real duplicate fetch.
+    timer = setTimeout(tick, initialDelayMs);
 
     // Catch up immediately when the tab regains focus, rather than waiting
     // out whatever's left of the current (possibly backed-off) delay.
@@ -69,7 +77,6 @@ export function usePollingSchedule(
 
     return () => {
       cancelled = true;
-      clearTimeout(kickoff);
       if (timer) clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisibility);
     };

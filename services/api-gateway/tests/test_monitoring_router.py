@@ -425,3 +425,94 @@ def test_audit_no_sensitive_fields_leak():
             assert "locked_until" not in row
 
     asyncio.run(_run())
+
+
+def test_audit_export_format_json_explicit_behaves_like_default():
+    async def _run():
+        records = [_record(minutes_ago=i) for i in range(3)]
+        repo = FakeMonitoringRepository(records=records)
+
+        default = await get_audit(_request(repository=repo), page=1, page_size=50, user_email=None, decision=None, from_=None, to=None, event_type=None)
+        explicit = await get_audit(_request(repository=repo), page=1, page_size=50, user_email=None, decision=None, from_=None, to=None, event_type=None, export_format="json")
+
+        assert default == explicit
+
+    asyncio.run(_run())
+
+
+def test_audit_export_csv_decisions_ignores_client_page_size():
+    async def _run():
+        # 3 rows, but page_size=1 -- a CSV export must return ALL matching
+        # rows regardless, not just what a JSON page would have.
+        records = [_record(minutes_ago=i) for i in range(3)]
+        repo = FakeMonitoringRepository(records=records)
+
+        response = await get_audit(
+            _request(repository=repo), page=1, page_size=1, user_email=None, decision=None, from_=None, to=None,
+            event_type=None, export_format="csv",
+        )
+
+        assert response.media_type == "text/csv"
+        assert response.headers["content-disposition"] == 'attachment; filename="audit-decisions-export.csv"'
+        body = response.body.decode("utf-8")
+        lines = [line for line in body.strip().split("\r\n") if line]
+        assert len(lines) == 1 + 3  # header + all 3 rows, not just 1
+        assert lines[0].split(",")[:3] == ["id", "trace_id", "created_at"]
+
+    asyncio.run(_run())
+
+
+def test_audit_export_csv_events_mode_uses_event_fields_and_filename():
+    async def _run():
+        repo = FakeMonitoringRepository()  # get_event_audit_page fake always returns empty
+
+        response = await get_audit(
+            _request(repository=repo), page=1, page_size=50, user_email=None, decision=None, from_=None, to=None,
+            event_type="auth_failed", export_format="csv",
+        )
+
+        assert response.headers["content-disposition"] == 'attachment; filename="audit-events-export.csv"'
+        body = response.body.decode("utf-8")
+        header_line = body.strip().split("\r\n")[0]
+        assert header_line.split(",") == [
+            "id", "trace_id", "created_at", "user_id", "ip_address", "http_method", "request_path",
+            "latency_ms", "http_status", "error_code", "error_message", "event_type",
+        ]
+
+    asyncio.run(_run())
+
+
+def test_audit_event_type_empty_string_still_selects_events_view_not_decisions():
+    # Real bug caught live: the dashboard's "any event type" selection sends
+    # event_type="" (present, but no specific filter) -- the router must
+    # still route to get_event_audit_page, not silently fall through to
+    # get_decision_audit_page just because the value is falsy. If it did,
+    # this test would see the 3 decision records below instead of the event
+    # fake's hardcoded empty result.
+    async def _run():
+        repo = FakeMonitoringRepository(records=[_record(), _record(), _record()])
+
+        response = await get_audit(
+            _request(repository=repo), page=1, page_size=50, user_email=None, decision=None, from_=None, to=None,
+            event_type="",
+        )
+
+        assert response["total"] == 0
+        assert response["rows"] == []
+
+    asyncio.run(_run())
+
+
+def test_audit_export_csv_empty_result_still_has_header_row():
+    async def _run():
+        repo = FakeMonitoringRepository(records=[])
+
+        response = await get_audit(
+            _request(repository=repo), page=1, page_size=50, user_email=None, decision=None, from_=None, to=None,
+            event_type=None, export_format="csv",
+        )
+
+        lines = [line for line in response.body.decode("utf-8").strip().split("\r\n") if line]
+        assert len(lines) == 1  # header only, no crash on an empty rows list
+
+    asyncio.run(_run())

@@ -24,6 +24,7 @@ from app.core.repositories import (
 )
 from app.core.vault import VaultTransitClient
 from app.middleware.gateway import GatewayMiddleware, GatewayServices
+from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.routers.auth import router as auth_router
 from app.routers.documents import router as documents_router
 from app.routers.mfa import router as mfa_router
@@ -175,6 +176,11 @@ def build_app(
         # fails before the request is ever sent.
         allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
     )
+    # Added third/last -> outermost (see the CORSMiddleware comment above for
+    # why Starlette's reverse add-order matters here): every response leaving
+    # this process, including CORS preflights and GatewayMiddleware's own
+    # 401/403s, gets these headers stamped on before it reaches the browser.
+    app.add_middleware(SecurityHeadersMiddleware, hsts_enabled=settings.refresh_cookie_secure)
     app.include_router(mfa_router)
     app.include_router(auth_router)
     app.include_router(documents_router)

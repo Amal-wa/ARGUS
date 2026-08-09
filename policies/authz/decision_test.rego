@@ -229,3 +229,50 @@ test_mfa_verified_does_not_conflict_with_risk_allow_when_score_below_threshold i
 		"mfa": {"verified": true},
 	}
 }
+
+# Sensitive-action gate (adaptive_access.sensitive_action) at the full decision
+# layer -- proves it overrides a comfortably-low score end to end, not just in
+# isolation inside adaptive_access_test.rego, mirroring how high_distinct_ips
+# is proven at both layers above. admin role used throughout: RBAC already
+# restricts delete/users-write to admin, so this is the realistic scenario --
+# an already-admin session, password-only, at low measured risk.
+
+test_sensitive_action_forces_step_up_even_with_low_score_end_to_end if {
+	authz.decision == {
+		"decision": "step_up",
+		"policy_name": "step_up_required",
+	} with input as {
+		"identity": {"subject": "u1", "role": "admin"},
+		"resource": {"http_method": "DELETE", "route": "/documents/{document_id}", "action": "delete"},
+		"risk_ctx": {"score": 0.10, "threshold": 0.98},
+		"mfa": {"verified": false},
+	}
+}
+
+test_sensitive_action_allowed_after_mfa_verified_end_to_end if {
+	authz.decision == {
+		"decision": "allow",
+		"policy_name": "mfa_verified_allow",
+	} with input as {
+		"identity": {"subject": "u1", "role": "admin"},
+		"resource": {"http_method": "DELETE", "route": "/documents/{document_id}", "action": "delete"},
+		"risk_ctx": {"score": 0.10, "threshold": 0.98},
+		"mfa": {"verified": true},
+	}
+}
+
+# Bootstrap mode: no model trained yet, risk_ctx.score is explicitly null --
+# before this change, bootstrap allowed literally everything with zero
+# step-up. This proves the gap is closed from day one of a fresh deployment,
+# not just once a model is active.
+test_sensitive_action_step_up_during_bootstrap_end_to_end if {
+	authz.decision == {
+		"decision": "step_up",
+		"policy_name": "step_up_required",
+	} with input as {
+		"identity": {"subject": "u1", "role": "admin"},
+		"resource": {"http_method": "DELETE", "route": "/documents/{document_id}", "action": "delete"},
+		"risk_ctx": {"score": null},
+		"mfa": {"verified": false},
+	}
+}

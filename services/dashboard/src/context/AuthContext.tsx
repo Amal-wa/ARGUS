@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { login as apiLogin, logout as apiLogout, refresh as apiRefresh } from "../api/auth";
-import { BASE_URL } from "../api/client";
+import { ApiError, BASE_URL } from "../api/client";
 import { isEnrollmentRequired } from "../types";
 import type { LoginResponse } from "../types";
 
@@ -61,8 +61,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       accessTokenRef.current = body.access_token;
       setAccessToken(body.access_token);
-    } catch {
-      setError("Login failed -- check email and password.");
+    } catch (err) {
+      // 429 (routers/auth.py's ACCOUNT_LOCKED branch) is a materially
+      // different situation from a wrong password -- the credentials may be
+      // correct but the account tripped the lockout threshold. Collapsing it
+      // into the generic message told a locked-out admin to go check their
+      // password, which is not the actual problem.
+      if (err instanceof ApiError && err.status === 429) {
+        setError("Account temporarily locked after repeated failed logins -- wait a moment and try again.");
+      } else {
+        setError("Login failed -- check email and password.");
+      }
     } finally {
       setIsLoading(false);
     }

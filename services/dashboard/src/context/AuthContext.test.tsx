@@ -370,6 +370,61 @@ describe("AuthContext and rate limiting", () => {
   });
 });
 
+describe("AuthContext login error messages", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("a 429 (account locked) shows a distinct message, not the generic 'check email and password'", async () => {
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      const path = String(url);
+      if (path.endsWith("/auth/refresh")) {
+        return new Response(JSON.stringify({ detail: "invalid refresh token" }), { status: 401 });
+      }
+      if (path.endsWith("/auth/login")) {
+        return new Response(JSON.stringify({ detail: "account locked" }), { status: 429 });
+      }
+      throw new Error(`unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+    await settleMountEffect();
+
+    await act(async () => {
+      await result.current.login("admin1@zt.local", "wrong-but-not-the-point");
+    });
+
+    expect(result.current.isAuthenticated).toBe(false);
+    expect(result.current.error).toMatch(/locked/i);
+    expect(result.current.error).not.toMatch(/check email and password/i);
+  });
+
+  it("an ordinary invalid-credentials 401 still shows the generic message", async () => {
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      const path = String(url);
+      if (path.endsWith("/auth/refresh")) {
+        return new Response(JSON.stringify({ detail: "invalid refresh token" }), { status: 401 });
+      }
+      if (path.endsWith("/auth/login")) {
+        return new Response(JSON.stringify({ detail: "invalid credentials" }), { status: 401 });
+      }
+      throw new Error(`unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+    await settleMountEffect();
+
+    await act(async () => {
+      await result.current.login("admin1@zt.local", "wrong-password");
+    });
+
+    expect(result.current.isAuthenticated).toBe(false);
+    expect(result.current.error).toMatch(/check email and password/i);
+  });
+});
+
 describe("AuthContext silent session restore on mount", () => {
   afterEach(() => {
     vi.unstubAllGlobals();

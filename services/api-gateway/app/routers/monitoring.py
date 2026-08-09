@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import csv
+import io
 from datetime import datetime
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query, Request, Response
 
 router = APIRouter()
 
@@ -20,6 +22,63 @@ MAX_ALERTS_LIMIT = 200
 
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 200
+
+# format=csv ignores the caller's page/page_size and fetches up to this many
+# rows in one go instead -- same "every monitoring query must be bounded"
+# discipline as MAX_PAGE_SIZE/MAX_DECISIONS_LIMIT/MAX_WINDOW_MINUTES above.
+# An unfiltered export (no user_email/date range) would otherwise return the
+# entire table. Truncation past this cap is silent, same as elsewhere in
+# this router -- a narrower filter (date range, user) is how a caller gets a
+# complete export of more than this many rows.
+MAX_EXPORT_ROWS = 5000
+
+# Fixed column order for the CSV export -- needed independent of any actual
+# result set so an EMPTY result still produces a well-formed header row
+# (csv.DictWriter can't derive fieldnames from an empty `rows` list).
+# Mirrors _serialize_decision_audit_row/_serialize_event_audit_row's dict key
+# order exactly.
+_DECISION_AUDIT_CSV_FIELDS = [
+    "id",
+    "trace_id",
+    "created_at",
+    "user_id",
+    "user_email",
+    "role",
+    "resource",
+    "action",
+    "ip_address",
+    "risk_score",
+    "model_version",
+    "is_anomaly",
+    "decision",
+    "policy_name",
+    "reason",
+    "latency_ms",
+]
+_EVENT_AUDIT_CSV_FIELDS = [
+    "id",
+    "trace_id",
+    "created_at",
+    "user_id",
+    "ip_address",
+    "http_method",
+    "request_path",
+    "latency_ms",
+    "http_status",
+    "error_code",
+    "error_message",
+    "event_type",
+]
+
+
+def _rows_to_csv(rows: list[dict], fieldnames: list[str]) -> str:
+    # csv's writer writes None as an empty cell automatically -- no extra
+    # null-handling needed for the many Optional columns in these shapes.
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(rows)
+    return buffer.getvalue()
 
 
 def _clamp(value: int, *, minimum: int, maximum: int) -> int:
@@ -223,25 +282,46 @@ async def get_audit(
     from_: datetime | None = Query(None, alias="from"),
     to: datetime | None = None,
     event_type: str | None = None,
+    # Named export_format internally (not `format`) to avoid shadowing the
+    # format() builtin -- the wire query param stays ?format=... via alias.
+    export_format: str = Query("json", alias="format"),
 ):
     services = request.app.state.gateway_services
-    page = max(1, page)
-    page_size = _clamp(page_size, minimum=1, maximum=MAX_PAGE_SIZE)
+    is_csv = export_format == "csv"
+    # CSV export ignores the caller's page/page_size entirely and fetches up
+    # to MAX_EXPORT_ROWS in one shot instead -- see that constant's comment.
+    # Any other format value (including the explicit "json", and simply
+    # omitting it) is today's existing paginated-JSON behavior, unchanged.
+    page = 1 if is_csv else max(1, page)
+    page_size = MAX_EXPORT_ROWS if is_csv else _clamp(page_size, minimum=1, maximum=MAX_PAGE_SIZE)
 
     # event_type only exists on the `events` table (gateway-level events --
     # rate limits, auth failures, step-up challenges), not on
     # opa_decision_log (the decision audit trail) -- so its presence selects
     # which of the two audit views this call reads, rather than being a
-    # column filter applied to both.
+    # column filter applied to both. Reused as-is for CSV export: the same
+    # branch decides both which repository method AND which CSV column set
+    # applies.
     if event_type is not None:
         page_result = await services.monitoring_repository.get_event_audit_page(
             page=page, page_size=page_size, user_email=user_email, event_type=event_type, from_ts=from_, to_ts=to
         )
         rows = [_serialize_event_audit_row(row) for row in page_result.rows]
+        csv_fields = _EVENT_AUDIT_CSV_FIELDS
+        csv_kind = "events"
     else:
         page_result = await services.monitoring_repository.get_decision_audit_page(
             page=page, page_size=page_size, user_email=user_email, decision=decision, from_ts=from_, to_ts=to
         )
         rows = [_serialize_decision_audit_row(row) for row in page_result.rows]
+        csv_fields = _DECISION_AUDIT_CSV_FIELDS
+        csv_kind = "decisions"
+
+    if is_csv:
+        return Response(
+            content=_rows_to_csv(rows, csv_fields),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="audit-{csv_kind}-export.csv"'},
+        )
 
     return {"rows": rows, "page": page, "page_size": page_size, "total": page_result.total}

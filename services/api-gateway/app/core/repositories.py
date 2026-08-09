@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
 
 from sqlalchemy import case, func, insert, select, text, update
 
+from app.core.audit_hash_chain import GENESIS_HASH, compute_row_hash
 from app.models.tables import (
     documents_table,
     event_anomaly_table,
@@ -19,6 +20,12 @@ from app.models.tables import (
     user_mfa_table,
     users_table,
 )
+
+# Fixed key for the advisory lock write_decision takes before touching
+# opa_decision_log -- see that method's docstring for why a plain
+# `SELECT ... ORDER BY id DESC LIMIT 1 FOR UPDATE` on the tail row is NOT
+# race-free for this specific pattern, and why this is.
+_HASH_CHAIN_LOCK_KEY = "opa_decision_log:hash_chain"
 
 
 @dataclass(slots=True)
@@ -52,9 +59,72 @@ class AuthorizationRepository:
         self._session_factory = session_factory
 
     async def write_decision(self, record: OpaDecisionRecord) -> None:
+        # Computed in Python, not left to the column's server_default=NOW() --
+        # compute_row_hash needs a fully-known timestamp value BEFORE the
+        # INSERT happens (the hash covers it), and the DB hasn't generated
+        # one yet at that point. This is the one deliberate behavior change
+        # this feature requires on an existing write path; every other
+        # column keeps its previous meaning.
+        timestamp = datetime.now(timezone.utc)
+
         async with self._session_factory() as session:
+            # MUST be the first statement in this transaction, before reading
+            # the current tail row below. A plain `SELECT ... ORDER BY id
+            # DESC LIMIT 1 FOR UPDATE` on the tail row is NOT race-free here:
+            # FOR UPDATE locks the specific row a query already identified,
+            # not "whichever row is the tail once unblocked". Concretely: if
+            # two transactions both resolve the same current tail row X and
+            # contend for its lock, the loser -- once the winner inserts a
+            # NEW row (X+1, never modifying X itself) and commits, releasing
+            # the lock on X -- reacquires the lock on that same original row
+            # X, not on the new true tail X+1, and chains its own new row
+            # from X too. Two rows would then both claim to descend from X:
+            # a forked chain despite no data having been tampered with. A
+            # pg_advisory_xact_lock on a fixed key instead serializes the
+            # ENTIRE read-hash-insert critical section end-to-end: by the
+            # time any transaction reads the tail row, every prior
+            # write_decision call has either fully committed (visible) or
+            # rolled back (never happened) -- no in-between state to race
+            # against. Released automatically on COMMIT/ROLLBACK, so it can
+            # never leak from a crashed connection.
+            #
+            # Trade-off, accepted deliberately: this serializes essentially
+            # every authenticated request's decision write through one lock.
+            # At this project's scale (a demo/portfolio Zero-Trust gateway,
+            # not a high-throughput multi-tenant system) a verifiable,
+            # unbroken audit chain is worth more than the write-concurrency
+            # headroom this gives up.
+            await session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": _HASH_CHAIN_LOCK_KEY})
+
+            tail = (
+                await session.execute(
+                    select(opa_decision_log_table.c.row_hash).order_by(opa_decision_log_table.c.id.desc()).limit(1)
+                )
+            ).one_or_none()
+            prev_hash = tail.row_hash if tail is not None else GENESIS_HASH
+
+            row_hash = compute_row_hash(
+                prev_hash=prev_hash,
+                trace_id=record.trace_id,
+                user_id=record.user_id,
+                jti=record.jti,
+                role=record.role,
+                resource=record.resource,
+                action=record.action,
+                ip_address=record.ip_address,
+                risk_score=record.risk_score,
+                model_version=record.model_version,
+                is_anomaly=record.is_anomaly,
+                decision=record.decision,
+                policy_name=record.policy_name,
+                reason=record.reason,
+                latency_ms=record.latency_ms,
+                timestamp=timestamp,
+            )
+
             await session.execute(
                 insert(opa_decision_log_table).values(
+                    timestamp=timestamp,
                     trace_id=record.trace_id,
                     user_id=record.user_id,
                     jti=record.jti,
@@ -69,6 +139,8 @@ class AuthorizationRepository:
                     policy_name=record.policy_name,
                     reason=record.reason,
                     latency_ms=record.latency_ms,
+                    prev_hash=prev_hash,
+                    row_hash=row_hash,
                 )
             )
             await session.commit()
@@ -950,7 +1022,15 @@ class MonitoringRepository:
         conditions = []
         if user_email is not None:
             conditions.append(users_table.c.email == user_email)
-        if event_type is not None:
+        # Truthy check, not `is not None`: the router (get_audit) uses
+        # event_type's mere PRESENCE (even "") to pick this method over
+        # get_decision_audit_page -- so an "any event type" caller in events
+        # mode legitimately sends event_type="" to select this table without
+        # filtering by type. `== ""` would match zero real rows (no
+        # event_type value is ever empty), so an empty string must skip the
+        # filter here exactly like None does, while any real value still
+        # filters as before.
+        if event_type:
             conditions.append(events_table.c.event_type == event_type)
         if from_ts is not None:
             conditions.append(events_table.c.timestamp >= from_ts)

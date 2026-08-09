@@ -124,3 +124,62 @@ test_missing_feature_vector_does_not_force_step_up if {
 		"risk_ctx": {"score": 0.10, "threshold": 0.98},
 	}
 }
+
+# Sensitive-action gate: independent of the score AND of bootstrap_mode --
+# closes the attack surface where a password-only compromise has full access
+# to anything the score doesn't flag, for high-impact actions specifically.
+
+test_sensitive_delete_step_up_even_with_low_score if {
+	adaptive_access.risk_decision == "step_up" with input as {
+		"risk_ctx": {"score": 0.10, "threshold": 0.98},
+		"resource": {"http_method": "DELETE", "route": "/documents/{document_id}", "action": "delete"},
+	}
+}
+
+test_sensitive_delete_step_up_during_bootstrap if {
+	adaptive_access.risk_decision == "step_up" with input as {
+		"risk_ctx": {"score": null},
+		"resource": {"http_method": "DELETE", "route": "/documents/{document_id}", "action": "delete"},
+	}
+}
+
+test_sensitive_users_create_step_up if {
+	adaptive_access.risk_decision == "step_up" with input as {
+		"risk_ctx": {"score": 0.10, "threshold": 0.98},
+		"resource": {"http_method": "POST", "route": "/users", "action": "create"},
+	}
+}
+
+test_sensitive_users_update_step_up if {
+	adaptive_access.risk_decision == "step_up" with input as {
+		"risk_ctx": {"score": 0.10, "threshold": 0.98},
+		"resource": {"http_method": "PUT", "route": "/users/{user_id}", "action": "update"},
+	}
+}
+
+# Reading a user is never sensitive -- RBAC already restricts /users read to
+# admin; requiring a step-up on top of that for a plain GET has no
+# proportionate security justification.
+test_users_read_not_sensitive if {
+	adaptive_access.risk_decision == "allow" with input as {
+		"risk_ctx": {"score": 0.10, "threshold": 0.98},
+		"resource": {"http_method": "GET", "route": "/users/{user_id}", "action": "read"},
+	}
+}
+
+# update outside /users (documents, orders) is deliberately NOT in scope --
+# proves the rule doesn't silently widen into "every write is sensitive".
+test_non_users_update_not_sensitive if {
+	adaptive_access.risk_decision == "allow" with input as {
+		"risk_ctx": {"score": 0.10, "threshold": 0.98},
+		"resource": {"http_method": "PUT", "route": "/documents/{document_id}", "action": "update"},
+	}
+}
+
+# delete is sensitive regardless of WHICH resource -- not just /users.
+test_delete_on_orders_also_sensitive if {
+	adaptive_access.risk_decision == "step_up" with input as {
+		"risk_ctx": {"score": 0.10, "threshold": 0.98},
+		"resource": {"http_method": "DELETE", "route": "/orders/{order_id}", "action": "delete"},
+	}
+}

@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import math
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -93,12 +94,27 @@ class ModelStore:
     _model: Any = field(default=None, init=False)
     _version: str | None = field(default=None, init=False)
     _score_breakpoints: list[float] | None = field(default=None, init=False)
+    # Liveness signal for the background poll_forever task -- distinct from
+    # _version, which reflects the last SUCCESSFULLY loaded model and says
+    # nothing about whether the poll loop itself is still ticking. Updated on
+    # every poll attempt (success or caught failure), never on load_version's
+    # own success/failure -- see poll_forever's placement of
+    # record_poll_attempt(). time.monotonic(), not datetime.now(): immune to
+    # NTP/clock-jump skew, which is exactly what an elapsed-duration
+    # staleness check needs.
+    _last_poll_at: float | None = field(default=None, init=False)
 
     def current(self) -> tuple[Any, str | None]:
         return self._model, self._version
 
     def calibration(self) -> list[float] | None:
         return self._score_breakpoints
+
+    def record_poll_attempt(self) -> None:
+        self._last_poll_at = time.monotonic()
+
+    def last_poll_at(self) -> float | None:
+        return self._last_poll_at
 
     def load_version(self, version: str, *, score_breakpoints: list[float] | None = None) -> None:
         path = model_path(self.models_dir, version)
@@ -176,4 +192,23 @@ async def poll_once(store: ModelStore, redis_client) -> None:
 async def poll_forever(store: ModelStore, redis_client, poll_interval_seconds: float) -> None:
     while True:
         await asyncio.sleep(poll_interval_seconds)
-        await poll_once(store, redis_client)
+        try:
+            await poll_once(store, redis_client)
+        except Exception:
+            # A transient Redis hiccup (e.g. redis_client.get() itself failing,
+            # not just store.load_version()) must not permanently kill this
+            # background task -- same philosophy as behavioral-detector's main
+            # loop ("a transient DB/Redis error on one tick is logged and the
+            # loop keeps going"). Without this, one dropped connection here
+            # silently stops model hot-swapping forever: /health keeps
+            # reporting whatever was last loaded (or nothing), indistinguishable
+            # from a legitimate bootstrap state, until the container is
+            # manually restarted -- reproduced live via a Redis restart during
+            # this poll loop.
+            logger.exception("isolation-forest: poll tick failed; will retry next poll")
+        # Unconditional -- success or caught failure above both count as "the
+        # loop is still alive", exactly like behavioral-detector's
+        # _touch_heartbeat. This is what /health's staleness check in main.py
+        # actually watches; it says nothing about whether the poll ITSELF
+        # succeeded (that's _version, a separate signal).
+        store.record_poll_attempt()

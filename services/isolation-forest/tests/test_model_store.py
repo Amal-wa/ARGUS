@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -11,7 +12,7 @@ import numpy as np
 import pytest
 from sklearn.ensemble import IsolationForest
 
-from app.model_store import ModelStore, percentile_calibrate, poll_once, risk_score_from_anomaly_score
+from app.model_store import ModelStore, percentile_calibrate, poll_forever, poll_once, risk_score_from_anomaly_score
 
 
 def _train_and_dump(models_dir: Path, version: str) -> None:
@@ -263,3 +264,68 @@ def test_poll_once_ignores_non_monotonic_calibration_key(tmp_path):
     asyncio.run(poll_once(store, redis))
 
     assert store.calibration() is None
+
+
+@dataclass(slots=True)
+class FlakyThenHealthyRedis:
+    """Simulates a Redis connection that drops for the first `fail_calls` .get()
+    calls (e.g. a container restart mid-poll), then recovers -- the scenario
+    that silently killed poll_forever's background task in production before
+    poll_once's exceptions were caught at the poll_forever level."""
+
+    values: dict[str, str] = field(default_factory=dict)
+    fail_calls: int = 0
+    calls: int = field(default=0, init=False)
+
+    async def get(self, key):
+        self.calls += 1
+        if self.calls <= self.fail_calls:
+            raise ConnectionError("simulated Redis outage")
+        return self.values.get(key)
+
+
+def test_poll_forever_survives_a_redis_error_and_reloads_on_a_later_tick(tmp_path):
+    _train_and_dump(tmp_path, "v1")
+    _train_and_dump(tmp_path, "v2")
+    store = ModelStore(models_dir=tmp_path)
+    store.load_version("v1")
+    # First poll tick's redis_client.get() raises (simulated outage); the
+    # active version is already in place by the time the second tick runs.
+    redis = FlakyThenHealthyRedis({"model:active_version": "v2"}, fail_calls=1)
+
+    async def _run():
+        task = asyncio.create_task(poll_forever(store, redis, poll_interval_seconds=0.01))
+        await asyncio.sleep(0.05)  # several ticks: the failing one + at least one healthy one
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    asyncio.run(_run())
+
+    _, version = store.current()
+    assert version == "v2"  # picked up despite the first tick's Redis error
+    assert redis.calls >= 2  # the loop kept ticking after the failure, it didn't die
+    # The heartbeat is the actual liveness signal /health's staleness check
+    # reads -- it must advance THROUGH the failing tick too, not just on
+    # successful ones, or a stalled-but-not-dead loop would look stale.
+    assert store.last_poll_at() is not None
+
+
+def test_record_poll_attempt_advances_even_through_a_failed_tick(tmp_path):
+    _train_and_dump(tmp_path, "v1")
+    store = ModelStore(models_dir=tmp_path)
+    store.load_version("v1")
+    redis = FlakyThenHealthyRedis({"model:active_version": "v1"}, fail_calls=1)
+
+    async def _run():
+        task = asyncio.create_task(poll_forever(store, redis, poll_interval_seconds=0.01))
+        await asyncio.sleep(0.03)  # at least the one failing tick
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    before = store.last_poll_at()
+    asyncio.run(_run())
+
+    assert before is None
+    assert store.last_poll_at() is not None

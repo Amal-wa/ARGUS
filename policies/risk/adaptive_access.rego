@@ -32,6 +32,7 @@ high_distinct_ips if {
 risk_decision := "allow" if {
 	bootstrap_mode
 	not high_distinct_ips
+	not sensitive_action
 }
 
 # The threshold is data-derived (the active model's p98, injected by the Gateway from
@@ -61,6 +62,7 @@ risk_decision := "allow" if {
 	is_number(input.risk_ctx.threshold)
 	input.risk_ctx.score < input.risk_ctx.threshold
 	not high_distinct_ips
+	not sensitive_action
 }
 
 risk_decision := "step_up" if {
@@ -76,4 +78,43 @@ risk_decision := "step_up" if {
 # branch above.
 risk_decision := "step_up" if {
 	high_distinct_ips
+}
+
+# Independent of the ML risk score, AND independent of bootstrap_mode -- some
+# actions are high-impact enough (irreversible deletion; provisioning or
+# re-privileging an account) that a step-up must be required no matter what
+# the score says, or whether a score exists at all. Without this, the actual
+# attack surface of the adaptive-MFA model is: a password-only compromise has
+# full access to anything the score doesn't flag, for the whole access-token
+# lifetime -- including deleting data or creating a new admin account, as
+# long as the attacker's request pattern stays under the calibrated
+# threshold. This closes that specific gap without abandoning the adaptive
+# model for everything else (see CLAUDE.md/SECURITY.md for the full
+# rationale). Same "independent gate" mechanism as high_distinct_ips above,
+# not a new architecture.
+#
+# Deliberately NOT guarded by `not bootstrap_mode`: today, before any model is
+# ever trained, bootstrap_mode allows literally everything with zero step-up
+# -- this rule closes that window too, from day one of a fresh deployment,
+# not just once a model is active.
+sensitive_action if {
+	input.resource.action == "delete"
+}
+
+# /users specifically (not documents/orders) for create/update: this is the
+# account-provisioning and role/privilege surface -- rbac.rego already treats
+# /users as admin-only for every action, so this rule's real-world effect is
+# to also require a fresh step-up from an already-admin session before it can
+# create or re-privilege an account, not just before it can read one.
+sensitive_action if {
+	startswith(input.resource.route, "/users")
+	input.resource.action in {"create", "update"}
+}
+
+# Same value ("step_up") as the score-driven and high_distinct_ips rules
+# above whenever more than one happens to fire -- Rego only conflicts on
+# DIFFERENT values for the same complete rule, so this is safe to define
+# unconditionally rather than folded into every branch above.
+risk_decision := "step_up" if {
+	sensitive_action
 }

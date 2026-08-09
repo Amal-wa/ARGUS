@@ -111,6 +111,37 @@ describe("usePolling", () => {
     expect(fetcher).toHaveBeenCalledTimes(3);
   });
 
+  it("a visibility regain during the initial delay does not cause a duplicate fetch", async () => {
+    // Reproduces a real bug: a tab loaded in the background (document.hidden)
+    // that regains focus before initialDelayMs elapses used to fire both the
+    // visibility-triggered tick() AND the original kickoff timer moments
+    // later, since onVisibility only ever cancelled the recurring `timer`,
+    // never the separate initial `kickoff` timer.
+    vi.useFakeTimers();
+    const fetcher = vi.fn().mockResolvedValue("ok");
+    Object.defineProperty(document, "hidden", { value: true, configurable: true });
+
+    try {
+      renderHook(() => usePolling(fetcher, 1000, [], 500));
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200); // partway through initialDelayMs
+        Object.defineProperty(document, "hidden", { value: false, configurable: true });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+
+      // Let the rest of the original 500ms initial delay elapse too -- this
+      // is exactly where the uncancelled kickoff timer used to fire again.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    } finally {
+      Object.defineProperty(document, "hidden", { value: false, configurable: true });
+    }
+  });
+
   it("a non-429 error is surfaced as `error`, not `rateLimited`, and does not back off", async () => {
     vi.useFakeTimers();
     const fetcher = vi.fn().mockRejectedValue(new Error("boom"));

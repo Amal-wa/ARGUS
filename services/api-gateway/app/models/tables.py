@@ -146,7 +146,18 @@ opa_decision_log_table = Table(
     Column("policy_name", Text, nullable=False),
     Column("reason", Text, nullable=True),
     Column("latency_ms", Integer, nullable=False),
+    # Tamper-evidence hash chain -- see app/core/audit_hash_chain.py and
+    # migration 0015_opa_decision_log_hash_chain. prev_hash is this row's
+    # parent (the row_hash of whichever row was the tail when this one was
+    # written, or GENESIS_HASH for the very first row); row_hash covers every
+    # other column on this row plus prev_hash, so altering ANY past row (or
+    # re-pointing a row's prev_hash) is detectable by
+    # scripts/verify_audit_integrity.py without needing a separate audit-of-
+    # the-audit-log system.
+    Column("prev_hash", String(length=64), nullable=False),
+    Column("row_hash", String(length=64), nullable=False),
     CheckConstraint("risk_score >= 0.0 AND risk_score <= 1.0", name="ck_opa_decision_log_risk_score"),
+    UniqueConstraint("row_hash", name="uq_opa_decision_log_row_hash"),
 )
 
 Index("idx_opa_decision_log_timestamp", opa_decision_log_table.c.timestamp)
