@@ -295,3 +295,50 @@ test_sensitive_action_step_up_during_bootstrap_end_to_end if {
 		"mfa": {"ticket_verified": false, "grace_verified": false},
 	}
 }
+
+# Monitoring-audit gate (adaptive_access.monitoring_audit_access) at the full
+# decision layer -- /monitoring/* is admin-only under RBAC already, so this
+# is the realistic scenario: an already-admin session, password-only, at low
+# (structurally always-null in practice) measured risk.
+
+test_monitoring_audit_forces_step_up_end_to_end if {
+	authz.decision == {
+		"decision": "step_up",
+		"policy_name": "step_up_required",
+	} with input as {
+		"identity": {"subject": "u1", "role": "admin"},
+		"resource": {"http_method": "GET", "route": "/monitoring/audit", "action": "read"},
+		"risk_ctx": {"score": 0.10, "threshold": 0.98},
+		"mfa": {"ticket_verified": false, "grace_verified": false},
+	}
+}
+
+# The proof of the "ambient grace suffices" design choice: unlike
+# sensitive_action (see test_sensitive_action_still_step_up_with_only_ambient_grace_no_ticket_end_to_end
+# above, which proves the OPPOSITE for that gate), grace_verified alone --
+# no ticket -- IS enough here. Continuous browsing (pagination, filters,
+# export) inside one already-verified analyst session shouldn't need a
+# fresh TOTP per click.
+test_monitoring_audit_allowed_after_grace_verified_end_to_end if {
+	authz.decision == {
+		"decision": "allow",
+		"policy_name": "mfa_verified_allow",
+	} with input as {
+		"identity": {"subject": "u1", "role": "admin"},
+		"resource": {"http_method": "GET", "route": "/monitoring/audit", "action": "read"},
+		"risk_ctx": {"score": null},
+		"mfa": {"ticket_verified": false, "grace_verified": true},
+	}
+}
+
+test_monitoring_audit_step_up_during_bootstrap_end_to_end if {
+	authz.decision == {
+		"decision": "step_up",
+		"policy_name": "step_up_required",
+	} with input as {
+		"identity": {"subject": "u1", "role": "admin"},
+		"resource": {"http_method": "GET", "route": "/monitoring/audit", "action": "read"},
+		"risk_ctx": {"score": null},
+		"mfa": {"ticket_verified": false, "grace_verified": false},
+	}
+}

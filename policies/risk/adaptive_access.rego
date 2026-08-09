@@ -33,6 +33,7 @@ risk_decision := "allow" if {
 	bootstrap_mode
 	not high_distinct_ips
 	not sensitive_action
+	not monitoring_audit_access
 }
 
 # The threshold is data-derived (the active model's p98, injected by the Gateway from
@@ -63,6 +64,7 @@ risk_decision := "allow" if {
 	input.risk_ctx.score < input.risk_ctx.threshold
 	not high_distinct_ips
 	not sensitive_action
+	not monitoring_audit_access
 }
 
 risk_decision := "step_up" if {
@@ -117,4 +119,29 @@ sensitive_action if {
 # unconditionally rather than folded into every branch above.
 risk_decision := "step_up" if {
 	sensitive_action
+}
+
+# Independent of the ML score, and NOT guarded by `not bootstrap_mode` --
+# unlike sensitive_action's case (a transient pre-training state),
+# bootstrap_mode is structurally ALWAYS true for /monitoring/* routes (see
+# AuthorizationService._is_monitoring_route: scoring is unconditionally
+# skipped there), so such a guard would never fire at all, not just rarely.
+#
+# Scoped to /monitoring/audit specifically, not all of /monitoring/* -- see
+# SECURITY.md. The rest of /monitoring (stats/alerts/risk-timeline/
+# system-status/decisions) is polled continuously (5-30s) by the live
+# dashboard view and carries far less reconnaissance value (aggregate
+# counts, health); /monitoring/audit is the detailed, exportable (CSV, up
+# to 5000 rows) decision/event audit trail -- fetched only on demand, the
+# single highest reconnaissance-value read in this system, and the only
+# monitoring endpoint capable of bulk exfiltration.
+monitoring_audit_access if {
+	input.resource.route == "/monitoring/audit"
+}
+
+# Same value ("step_up") as the other independent-gate rules above whenever
+# more than one happens to fire -- Rego only conflicts on DIFFERENT values
+# for the same complete rule, safe to define unconditionally.
+risk_decision := "step_up" if {
+	monitoring_audit_access
 }

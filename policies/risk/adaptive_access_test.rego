@@ -183,3 +183,60 @@ test_delete_on_orders_also_sensitive if {
 		"resource": {"http_method": "DELETE", "route": "/orders/{order_id}", "action": "delete"},
 	}
 }
+
+# Monitoring-audit gate: /monitoring/audit is the detailed, exportable
+# decision/event audit trail -- the highest reconnaissance-value read in
+# this system, and the only monitoring endpoint capable of bulk
+# exfiltration (CSV, up to 5000 rows). Structurally never reachable via the
+# score at all: AuthorizationService skips scoring entirely for every
+# /monitoring/* route, so risk_ctx.score is always null there.
+
+test_monitoring_audit_forces_step_up_even_with_low_score if {
+	adaptive_access.risk_decision == "step_up" with input as {
+		"risk_ctx": {"score": 0.10, "threshold": 0.98},
+		"resource": {"http_method": "GET", "route": "/monitoring/audit", "action": "read"},
+	}
+}
+
+# The realistic case: risk_ctx.score is ALWAYS null for /monitoring/* (see
+# above) -- this is not a rare transitional state for this route the way
+# bootstrap is for business routes, it's the permanent, only state.
+test_monitoring_audit_forces_step_up_during_bootstrap if {
+	adaptive_access.risk_decision == "step_up" with input as {
+		"risk_ctx": {"score": null},
+		"resource": {"http_method": "GET", "route": "/monitoring/audit", "action": "read"},
+	}
+}
+
+# The rest of /monitoring/* is deliberately NOT gated -- these are polled
+# continuously (5-30s) by the live dashboard view; gating them would be a
+# real UX regression for disproportionately little security gain (aggregate
+# counts, health -- not the detailed, exportable audit trail).
+
+test_monitoring_stats_not_gated if {
+	adaptive_access.risk_decision == "allow" with input as {
+		"risk_ctx": {"score": null},
+		"resource": {"http_method": "GET", "route": "/monitoring/stats", "action": "read"},
+	}
+}
+
+test_monitoring_alerts_not_gated if {
+	adaptive_access.risk_decision == "allow" with input as {
+		"risk_ctx": {"score": null},
+		"resource": {"http_method": "GET", "route": "/monitoring/alerts", "action": "read"},
+	}
+}
+
+test_monitoring_risk_timeline_not_gated if {
+	adaptive_access.risk_decision == "allow" with input as {
+		"risk_ctx": {"score": null},
+		"resource": {"http_method": "GET", "route": "/monitoring/risk-timeline", "action": "read"},
+	}
+}
+
+test_monitoring_system_status_not_gated if {
+	adaptive_access.risk_decision == "allow" with input as {
+		"risk_ctx": {"score": null},
+		"resource": {"http_method": "GET", "route": "/monitoring/system-status", "action": "read"},
+	}
+}
