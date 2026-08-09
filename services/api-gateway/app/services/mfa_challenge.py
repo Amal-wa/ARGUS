@@ -102,7 +102,13 @@ class MfaChallengeService:
             user_id=context.claims.subject,
             jti=context.claims.jti,
             role=context.claims.role,
-            resource=context.path,
+            # The route PATTERN, not the raw path -- must match exactly what
+            # AuthorizationService.authorize computes for the retried request
+            # (resolve_route_pattern), since it's what the action ticket gets
+            # scoped to on successful verification. Falls back to the raw
+            # path only defensively; route_pattern is always set by the time
+            # authorize() has produced a step_up outcome.
+            resource=context.route_pattern or context.path,
             action=request_action(context.method),
             http_method=context.method,
             trace_id=context.trace_id,
@@ -125,6 +131,16 @@ class MfaChallengeService:
 
         challenge_context = ChallengeContext.from_json(raw)
         if challenge_context.user_id != claims.subject:
+            return ChallengeVerificationResult(status=MfaVerificationStatus.CHALLENGE_EXPIRED)
+
+        # Session binding: the token resolving this challenge must be the
+        # SAME token whose request triggered it. Without this, a second
+        # valid token for the same user_id (stolen/leaked access token,
+        # concurrent session) could resolve a challenge it never triggered
+        # and inherit the resulting grace window -- same CHALLENGE_EXPIRED
+        # treatment as the subject mismatch above, not a new status, since
+        # from the caller's perspective it's the same "this isn't yours" case.
+        if challenge_context.jti != claims.jti:
             return ChallengeVerificationResult(status=MfaVerificationStatus.CHALLENGE_EXPIRED)
 
         record = await self.repository.get(challenge_context.user_id)
@@ -155,8 +171,25 @@ class MfaChallengeService:
 
         await self.repository.reset_on_success(challenge_context.user_id)
         await self.redis_client.delete(f"challenge:{challenge_id}")
+
+        # Single-use ticket, scoped to exactly the (user, jti, route pattern,
+        # action) that was challenged -- always sufficient on its own,
+        # regardless of sensitivity (see mfa.rego). Lets the client's retry
+        # of the SAME original request through without relying on the
+        # broader ambient grace window below.
         await self.redis_client.set(
-            f"mfa:verified:{challenge_context.user_id}",
+            f"mfa:action_ticket:{challenge_context.user_id}:{challenge_context.jti}:"
+            f"{challenge_context.resource}:{challenge_context.action}",
+            "1",
+            ex=self.settings.sensitive_action_ticket_ttl_seconds,
+        )
+        # Ambient grace window, now scoped to user_id:jti (not just
+        # user_id) -- closes the cross-session leak. Still sufficient on its
+        # own for non-sensitive step-ups (score-driven, high_distinct_ips);
+        # mfa.rego is what enforces that it is NOT sufficient alone for a
+        # sensitive_action.
+        await self.redis_client.set(
+            f"mfa:verified:{challenge_context.user_id}:{challenge_context.jti}",
             "1",
             ex=self.settings.mfa_verified_ttl_seconds,
         )

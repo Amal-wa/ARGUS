@@ -38,7 +38,8 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "verified": { "type": "boolean" }
+        "ticket_verified": { "type": "boolean" },
+        "grace_verified": { "type": "boolean" }
       }
     },
     "is_post_step_up": { "type": "boolean" },

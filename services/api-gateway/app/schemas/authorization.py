@@ -30,7 +30,14 @@ class RiskContext(BaseModel):
 
 
 class MfaContext(BaseModel):
-    verified: bool = False
+    # Two raw, mechanical pieces of evidence -- deliberately not a single
+    # pre-combined "verified" boolean. Whether either one counts as
+    # sufficient for THIS request is Rego's call (policies/risk/mfa.rego
+    # imports adaptive_access.sensitive_action to decide), not Python's --
+    # see CLAUDE.md for why a pre-merged boolean here would either duplicate
+    # that policy in Python or force a second OPA round-trip.
+    ticket_verified: bool = False
+    grace_verified: bool = False
 
 
 class OpaPolicyInput(BaseModel):

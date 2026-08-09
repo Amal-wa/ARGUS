@@ -62,6 +62,7 @@ class AuthorizationService:
         route_pattern = resolve_route_pattern(request)
         action = request_action(context.method)
         is_monitoring_route = _is_monitoring_route(route_pattern)
+        context.route_pattern = route_pattern
 
         feature_vector = await self.feature_vector_service.build_vector(context)
         if not is_monitoring_route:
@@ -129,11 +130,24 @@ class AuthorizationService:
         # Rego change needed; see adaptive_access.rego's bootstrap_mode rule.
         risk_ctx.threshold = threshold
 
-        mfa_verified = context.is_post_step_up
-        verified_marker = await self.redis_client.get(f"mfa:verified:{context.claims.subject}")
-        if verified_marker is not None:
+        # Two independent, mechanical pieces of evidence -- Python never decides
+        # which one is "enough" for THIS request; that stays Rego's call
+        # (mfa.rego imports adaptive_access.sensitive_action directly). See
+        # CLAUDE.md / SECURITY.md for the finding this closes: a single TOTP
+        # used to unlock a 5-minute blank check for every subsequent sensitive
+        # action, keyed only by user_id (not even by session).
+        ticket_verified = context.is_post_step_up
+        if not ticket_verified:
+            ticket_key = f"mfa:action_ticket:{context.claims.subject}:{context.claims.jti}:{route_pattern}:{action}"
+            # Single-use: DELETE-if-exists, not GET then DELETE -- a second
+            # concurrent request for the same (user, jti, route, action) must
+            # never both observe the ticket as present.
+            ticket_verified = bool(await self.redis_client.delete(ticket_key))
+        grace_marker = await self.redis_client.get(f"mfa:verified:{context.claims.subject}:{context.claims.jti}")
+        grace_verified = grace_marker is not None
+
+        if ticket_verified or grace_verified:
             context.is_post_step_up = True
-            mfa_verified = True
 
         opa_input = OpaPolicyInput(
             identity={"subject": context.claims.subject, "role": context.claims.role},
@@ -143,7 +157,7 @@ class AuthorizationService:
                 "model_version": risk_ctx.model_version,
                 "threshold": risk_ctx.threshold,
             },
-            mfa={"verified": mfa_verified},
+            mfa={"ticket_verified": ticket_verified, "grace_verified": grace_verified},
             is_post_step_up=context.is_post_step_up,
             feature_vector=feature_vector,
         )

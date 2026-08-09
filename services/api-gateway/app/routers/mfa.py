@@ -169,7 +169,10 @@ async def verify_mfa_challenge(request: Request):
             "model_version": challenge_context.model_version,
             "threshold": challenge_context.threshold,
         },
-        mfa={"verified": True},
+        # We know verification just succeeded in this same call --
+        # ticket_verified=True is always sufficient regardless of
+        # sensitivity (see mfa.rego), so no need to re-derive from Redis.
+        mfa={"ticket_verified": True, "grace_verified": False},
         is_post_step_up=True,
     )
     decision = await services.authorization_service.opa_client.decide(opa_input)

@@ -49,6 +49,12 @@ class GatewaySettings:
     mfa_challenge_ttl_seconds: int = _required_int_env("MFA_CHALLENGE_TTL_SECONDS", 120)
     totp_replay_ttl_seconds: int = _required_int_env("TOTP_REPLAY_TTL_SECONDS", 90)
     mfa_verified_ttl_seconds: int = _required_int_env("MFA_VERIFIED_TTL_SECONDS", 300)
+    # Single-use action ticket (see mfa_challenge.py) scoped to the exact
+    # (user, jti, route pattern, action) that was challenged -- deliberately
+    # much shorter than mfa_verified_ttl_seconds, since it only needs to
+    # survive the client's immediate retry of the just-challenged request,
+    # not a whole session's worth of follow-up actions.
+    sensitive_action_ticket_ttl_seconds: int = _required_int_env("SENSITIVE_ACTION_TICKET_TTL_SECONDS", 60)
     access_token_ttl_minutes: int = _required_int_env("ACCESS_TOKEN_TTL_MINUTES", 15)
     enrollment_token_ttl_minutes: int = _required_int_env("ENROLLMENT_TOKEN_TTL_MINUTES", 5)
     refresh_token_ttl_days: int = _required_int_env("REFRESH_TOKEN_TTL_DAYS", 7)

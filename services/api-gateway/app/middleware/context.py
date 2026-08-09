@@ -17,6 +17,11 @@ class RequestContext:
     ip_address: str = "127.0.0.1"
     claims: VerifiedJWT | None = None
     is_post_step_up: bool = False
+    # Set by AuthorizationService.authorize() once the route pattern is
+    # resolved -- MfaChallengeService.create_challenge reuses it so the
+    # challenge (and later the action ticket) is scoped to the same route
+    # PATTERN the retried request will resolve to, not the raw path.
+    route_pattern: str | None = None
 
     def latency_ms(self) -> int:
         return max(0, int((perf_counter() - self.started_at) * 1000))

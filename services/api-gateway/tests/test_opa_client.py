@@ -84,7 +84,7 @@ def test_opa_client_wraps_payload_in_input_key(monkeypatch):
             "identity": {"subject": "11111111-1111-1111-1111-111111111111", "role": "reader"},
             "resource": {"http_method": "GET", "route": "/documents/{id}", "action": "read"},
             "risk_ctx": {"score": None, "model_version": None},
-            "mfa": {"verified": False},
+            "mfa": {"ticket_verified": False, "grace_verified": False},
             "is_post_step_up": False,
             "feature_vector": [],
         }
@@ -102,7 +102,8 @@ def test_opa_client_wraps_payload_in_input_key(monkeypatch):
     sent_body = json.loads(captured_request["request"].data.decode("utf-8"))
     assert set(sent_body.keys()) == {"input"}
     assert sent_body["input"]["identity"]["role"] == "reader"
-    assert sent_body["input"]["mfa"]["verified"] is False
+    assert sent_body["input"]["mfa"]["ticket_verified"] is False
+    assert sent_body["input"]["mfa"]["grace_verified"] is False
 
 
 def test_opa_client_raises_unavailable_on_connection_failure(monkeypatch):

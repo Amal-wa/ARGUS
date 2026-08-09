@@ -137,6 +137,33 @@ def test_challenge_user_mismatch_treated_as_expired(monkeypatch):
     asyncio.run(_run())
 
 
+def test_challenge_jti_mismatch_treated_as_expired(monkeypatch):
+    """Session binding: a SECOND valid token for the same user (different
+    jti -- stolen/leaked access token, concurrent session) must not be able
+    to resolve a challenge it never triggered, even with the correct TOTP
+    code. Same CHALLENGE_EXPIRED treatment as the subject-mismatch case
+    above -- this closes the cross-session half of the grace-window
+    finding."""
+    monkeypatch.setattr("app.core.totp.time.time", lambda: FROZEN_TIME)
+
+    async def _run():
+        service, _redis, repository, enrollment = _service()
+        user_id = uuid4()
+        secret = b"6" * 20
+        await _enroll(repository, enrollment, user_id, secret)
+        triggering_claims = _claims(user_id)
+        context = RequestContext(claims=triggering_claims)
+        challenge_id = await service.create_challenge(context, RiskScoreResult(risk_score=0.9, model_version="m1"))
+
+        other_session_claims = _claims(user_id)  # same subject, different jti
+        code = totp_module.compute_totp(secret, totp_module.current_time_step(FROZEN_TIME))
+        result = await service.verify_challenge(challenge_id=challenge_id, code=code, claims=other_session_claims)
+
+        assert result.status == MfaVerificationStatus.CHALLENGE_EXPIRED
+
+    asyncio.run(_run())
+
+
 def test_create_challenge_returns_none_when_not_enrolled(monkeypatch):
     monkeypatch.setattr("app.core.totp.time.time", lambda: FROZEN_TIME)
 
@@ -159,12 +186,13 @@ def test_verify_challenge_not_enrolled_defensive_branch(monkeypatch):
         service, _redis, repository, enrollment = _service()
         user_id = uuid4()
         await _enroll(repository, enrollment, user_id, b"0" * 20)
-        context = RequestContext(claims=_claims(user_id))
+        claims = _claims(user_id)
+        context = RequestContext(claims=claims)
         challenge_id = await service.create_challenge(context, RiskScoreResult(risk_score=0.9, model_version="m1"))
 
         del repository.records[user_id]
 
-        result = await service.verify_challenge(challenge_id=challenge_id, code="000000", claims=_claims(user_id))
+        result = await service.verify_challenge(challenge_id=challenge_id, code="000000", claims=claims)
 
         assert result.status == MfaVerificationStatus.NOT_ENROLLED
 
@@ -180,11 +208,12 @@ def test_locked_pre_check_rejects_before_verifying_code(monkeypatch):
         secret = b"1" * 20
         await _enroll(repository, enrollment, user_id, secret)
         repository.records[user_id].locked_until = datetime.now(timezone.utc) + timedelta(minutes=5)
-        context = RequestContext(claims=_claims(user_id))
+        claims = _claims(user_id)
+        context = RequestContext(claims=claims)
         challenge_id = await service.create_challenge(context, RiskScoreResult(risk_score=0.9, model_version="m1"))
 
         correct_code = totp_module.compute_totp(secret, totp_module.current_time_step(FROZEN_TIME))
-        result = await service.verify_challenge(challenge_id=challenge_id, code=correct_code, claims=_claims(user_id))
+        result = await service.verify_challenge(challenge_id=challenge_id, code=correct_code, claims=claims)
 
         assert result.status == MfaVerificationStatus.LOCKED
 
@@ -199,10 +228,11 @@ def test_invalid_code_below_threshold(monkeypatch):
         user_id = uuid4()
         secret = b"2" * 20
         await _enroll(repository, enrollment, user_id, secret)
-        context = RequestContext(claims=_claims(user_id))
+        claims = _claims(user_id)
+        context = RequestContext(claims=claims)
         challenge_id = await service.create_challenge(context, RiskScoreResult(risk_score=0.9, model_version="m1"))
 
-        result = await service.verify_challenge(challenge_id=challenge_id, code=_wrong_code(secret), claims=_claims(user_id))
+        result = await service.verify_challenge(challenge_id=challenge_id, code=_wrong_code(secret), claims=claims)
 
         assert result.status == MfaVerificationStatus.INVALID_CODE
         assert repository.records[user_id].failed_attempts == 1
@@ -219,10 +249,11 @@ def test_invalid_code_hits_threshold_locks_now(monkeypatch):
         user_id = uuid4()
         secret = b"3" * 20
         await _enroll(repository, enrollment, user_id, secret)
-        context = RequestContext(claims=_claims(user_id))
+        claims = _claims(user_id)
+        context = RequestContext(claims=claims)
         challenge_id = await service.create_challenge(context, RiskScoreResult(risk_score=0.9, model_version="m1"))
 
-        result = await service.verify_challenge(challenge_id=challenge_id, code=_wrong_code(secret), claims=_claims(user_id))
+        result = await service.verify_challenge(challenge_id=challenge_id, code=_wrong_code(secret), claims=claims)
 
         assert result.status == MfaVerificationStatus.LOCKED_NOW
         assert repository.records[user_id].locked_until is not None
@@ -238,15 +269,16 @@ def test_totp_replay_detected_on_second_challenge_with_same_code(monkeypatch):
         user_id = uuid4()
         secret = b"4" * 20
         await _enroll(repository, enrollment, user_id, secret)
-        context = RequestContext(claims=_claims(user_id))
+        claims = _claims(user_id)
+        context = RequestContext(claims=claims)
         code = totp_module.compute_totp(secret, totp_module.current_time_step(FROZEN_TIME))
 
         first_challenge_id = await service.create_challenge(context, RiskScoreResult(risk_score=0.9, model_version="m1"))
-        first_result = await service.verify_challenge(challenge_id=first_challenge_id, code=code, claims=_claims(user_id))
+        first_result = await service.verify_challenge(challenge_id=first_challenge_id, code=code, claims=claims)
         assert first_result.status == MfaVerificationStatus.VERIFIED
 
         second_challenge_id = await service.create_challenge(context, RiskScoreResult(risk_score=0.9, model_version="m1"))
-        second_result = await service.verify_challenge(challenge_id=second_challenge_id, code=code, claims=_claims(user_id))
+        second_result = await service.verify_challenge(challenge_id=second_challenge_id, code=code, claims=claims)
 
         assert second_result.status == MfaVerificationStatus.TOTP_REPLAYED
 
@@ -262,17 +294,26 @@ def test_success_resets_attempts_deletes_challenge_and_sets_marker(monkeypatch):
         secret = b"5" * 20
         await _enroll(repository, enrollment, user_id, secret)
         repository.records[user_id].failed_attempts = 2
-        context = RequestContext(claims=_claims(user_id))
+        claims = _claims(user_id)
+        context = RequestContext(claims=claims)
         challenge_id = await service.create_challenge(context, RiskScoreResult(risk_score=0.9, model_version="m1"))
 
         code = totp_module.compute_totp(secret, totp_module.current_time_step(FROZEN_TIME))
-        result = await service.verify_challenge(challenge_id=challenge_id, code=code, claims=_claims(user_id))
+        result = await service.verify_challenge(challenge_id=challenge_id, code=code, claims=claims)
 
         assert result.status == MfaVerificationStatus.VERIFIED
         assert result.context is not None
         assert result.context.user_id == user_id
         assert repository.records[user_id].failed_attempts == 0
         assert await redis.exists(f"challenge:{challenge_id}") is False
-        assert await redis.get(f"mfa:verified:{user_id}") == "1"
+        # Ambient grace, now scoped user_id:jti (not just user_id -- the
+        # pre-fix shape must no longer be what's written).
+        assert await redis.get(f"mfa:verified:{user_id}:{claims.jti}") == "1"
+        assert await redis.get(f"mfa:verified:{user_id}") is None
+        # Single-use action ticket, scoped to (user, jti, resource, action) --
+        # RequestContext() defaults to method="GET"/path="/" and route_pattern
+        # is unset in this unit test, so create_challenge falls back to "/"
+        # and action resolves to "read".
+        assert await redis.get(f"mfa:action_ticket:{user_id}:{claims.jti}:/:read") == "1"
 
     asyncio.run(_run())

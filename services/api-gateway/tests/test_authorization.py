@@ -110,7 +110,8 @@ def test_authorize_allow_persists_decision_and_training_sample():
         assert len(repo.samples) == 1
         assert service.opa_client.payloads[0].resource.route == "/documents/{document_id}"
         assert service.opa_client.payloads[0].risk_ctx.score is None
-        assert service.opa_client.payloads[0].mfa.verified is False
+        assert service.opa_client.payloads[0].mfa.ticket_verified is False
+        assert service.opa_client.payloads[0].mfa.grace_verified is False
         assert service.opa_client.payloads[0].is_post_step_up is False
         # Must match the lowercase Postgres decision_type enum (allow/deny/step_up),
         # not the uppercase OpaDecision.value ("ALLOW") -- a real-DB-only bug the
@@ -156,7 +157,8 @@ def test_authorize_first_step_up_request_uses_pre_step_up_payload():
         assert len(service.repository.decisions) == 1
         assert len(service.repository.samples) == 1
         assert service.opa_client.payloads[0].is_post_step_up is False
-        assert service.opa_client.payloads[0].mfa.verified is False
+        assert service.opa_client.payloads[0].mfa.ticket_verified is False
+        assert service.opa_client.payloads[0].mfa.grace_verified is False
 
     asyncio.run(_run())
 
@@ -176,7 +178,11 @@ def test_authorize_post_step_up_request_marks_mfa_verified_and_post_step_up():
         assert len(service.repository.decisions) == 1
         assert len(service.repository.samples) == 0
         assert service.opa_client.payloads[0].is_post_step_up is True
-        assert service.opa_client.payloads[0].mfa.verified is True
+        # A pre-set context.is_post_step_up is treated as the strongest
+        # evidence (equivalent to a consumed ticket), not the ambient grace
+        # window -- see AuthorizationService.authorize.
+        assert service.opa_client.payloads[0].mfa.ticket_verified is True
+        assert service.opa_client.payloads[0].mfa.grace_verified is False
 
     asyncio.run(_run())
 
@@ -195,6 +201,93 @@ def test_authorize_no_active_model_leaves_threshold_null():
         assert service.opa_client.payloads[0].risk_ctx.score is None
         assert service.opa_client.payloads[0].risk_ctx.threshold is None
         assert service.scoring_client.calls == 0
+
+    asyncio.run(_run())
+
+
+def test_authorize_consumes_action_ticket_once():
+    """The action ticket (mfa:action_ticket:...) is single-use: a matching
+    ticket in Redis is consumed by the first request and must NOT be found
+    by a second, otherwise-identical request -- this is what actually closes
+    the "5-minute blank check" finding, on top of what mfa.rego enforces."""
+
+    async def _run():
+        redis = InMemoryRedis()
+        app, service = _service(
+            OpaDecisionResult(decision=OpaDecision.ALLOW, policy_name="mfa_verified_allow"),
+            RiskScoreResult(risk_score=0.99, model_version="model-3"),
+            redis=redis,
+        )
+        claims = _claims()
+        route_pattern = "/documents/{document_id}"
+        ticket_key = f"mfa:action_ticket:{claims.subject}:{claims.jti}:{route_pattern}:read"
+        await redis.set(ticket_key, "1", ex=60)
+
+        context = RequestContext(method="GET", path="/documents/123", claims=claims)
+        outcome = await service.authorize(request=_request(app), context=context)
+
+        assert outcome.decision == OpaDecision.ALLOW
+        assert service.opa_client.payloads[0].mfa.ticket_verified is True
+        assert await redis.exists(ticket_key) is False
+
+        service.opa_client.payloads.clear()
+        context2 = RequestContext(method="GET", path="/documents/123", claims=claims)
+        await service.authorize(request=_request(app), context=context2)
+
+        assert service.opa_client.payloads[0].mfa.ticket_verified is False
+
+    asyncio.run(_run())
+
+
+def test_authorize_ticket_scoped_to_exact_route_and_action():
+    """A ticket issued for one action (delete) must not be consumable by a
+    request for a different action (read) on the same route pattern --
+    proves the ticket is scoped precisely, not just per-route."""
+
+    async def _run():
+        redis = InMemoryRedis()
+        app, service = _service(
+            OpaDecisionResult(decision=OpaDecision.ALLOW, policy_name="risk_allow"),
+            RiskScoreResult(risk_score=0.1, model_version="model-3"),
+            redis=redis,
+        )
+        claims = _claims()
+        mismatched_key = f"mfa:action_ticket:{claims.subject}:{claims.jti}:/documents/{{document_id}}:delete"
+        await redis.set(mismatched_key, "1", ex=60)
+
+        context = RequestContext(method="GET", path="/documents/123", claims=claims)
+        await service.authorize(request=_request(app), context=context)
+
+        assert service.opa_client.payloads[0].mfa.ticket_verified is False
+        assert await redis.exists(mismatched_key) is True
+
+    asyncio.run(_run())
+
+
+def test_authorize_grace_window_is_jti_scoped_not_just_user_scoped():
+    """Regression test for the cross-session leak: an old-shape, user-only
+    key (mfa:verified:{user_id}, pre-fix) must no longer grant grace_verified.
+    Only the user:jti-scoped key does."""
+
+    async def _run():
+        redis = InMemoryRedis()
+        app, service = _service(
+            OpaDecisionResult(decision=OpaDecision.ALLOW, policy_name="risk_allow"),
+            RiskScoreResult(risk_score=0.99, model_version="model-3"),
+            redis=redis,
+        )
+        claims = _claims()
+        await redis.set(f"mfa:verified:{claims.subject}", "1", ex=300)
+
+        context = RequestContext(method="GET", path="/documents/123", claims=claims)
+        await service.authorize(request=_request(app), context=context)
+        assert service.opa_client.payloads[0].mfa.grace_verified is False
+
+        await redis.set(f"mfa:verified:{claims.subject}:{claims.jti}", "1", ex=300)
+        service.opa_client.payloads.clear()
+        context2 = RequestContext(method="GET", path="/documents/123", claims=claims)
+        await service.authorize(request=_request(app), context=context2)
+        assert service.opa_client.payloads[0].mfa.grace_verified is True
 
     asyncio.run(_run())
 

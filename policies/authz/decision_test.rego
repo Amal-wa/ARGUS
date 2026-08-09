@@ -51,7 +51,7 @@ test_mfa_verified_allow_when_score_above_threshold_and_mfa_verified if {
 		"identity": {"subject": "u1", "role": "reader"},
 		"resource": {"http_method": "GET", "route": "/documents/{document_id}", "action": "read"},
 		"risk_ctx": {"score": 0.94, "threshold": 0.651},
-		"mfa": {"verified": true},
+		"mfa": {"ticket_verified": false, "grace_verified": true},
 	}
 }
 
@@ -63,7 +63,7 @@ test_step_up_required_when_score_above_threshold_and_mfa_not_verified if {
 		"identity": {"subject": "u1", "role": "reader"},
 		"resource": {"http_method": "GET", "route": "/documents/{document_id}", "action": "read"},
 		"risk_ctx": {"score": 0.94, "threshold": 0.651},
-		"mfa": {"verified": false},
+		"mfa": {"ticket_verified": false, "grace_verified": false},
 	}
 }
 
@@ -98,7 +98,7 @@ test_score_equal_to_threshold_triggers_step_up if {
 		"identity": {"subject": "u1", "role": "reader"},
 		"resource": {"http_method": "GET", "route": "/documents/{document_id}", "action": "read"},
 		"risk_ctx": {"score": 0.651, "threshold": 0.651},
-		"mfa": {"verified": false},
+		"mfa": {"ticket_verified": false, "grace_verified": false},
 	}
 }
 
@@ -214,7 +214,7 @@ test_high_distinct_ips_forces_step_up_even_with_low_score if {
 		"resource": {"http_method": "GET", "route": "/documents/{document_id}", "action": "read"},
 		"risk_ctx": {"score": 0.10, "threshold": 0.98},
 		"feature_vector": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0],
-		"mfa": {"verified": false},
+		"mfa": {"ticket_verified": false, "grace_verified": false},
 	}
 }
 
@@ -226,7 +226,7 @@ test_mfa_verified_does_not_conflict_with_risk_allow_when_score_below_threshold i
 		"identity": {"subject": "u1", "role": "reader"},
 		"resource": {"http_method": "GET", "route": "/documents/{document_id}", "action": "read"},
 		"risk_ctx": {"score": 0.61, "threshold": 0.651},
-		"mfa": {"verified": true},
+		"mfa": {"ticket_verified": false, "grace_verified": true},
 	}
 }
 
@@ -245,7 +245,7 @@ test_sensitive_action_forces_step_up_even_with_low_score_end_to_end if {
 		"identity": {"subject": "u1", "role": "admin"},
 		"resource": {"http_method": "DELETE", "route": "/documents/{document_id}", "action": "delete"},
 		"risk_ctx": {"score": 0.10, "threshold": 0.98},
-		"mfa": {"verified": false},
+		"mfa": {"ticket_verified": false, "grace_verified": false},
 	}
 }
 
@@ -257,7 +257,26 @@ test_sensitive_action_allowed_after_mfa_verified_end_to_end if {
 		"identity": {"subject": "u1", "role": "admin"},
 		"resource": {"http_method": "DELETE", "route": "/documents/{document_id}", "action": "delete"},
 		"risk_ctx": {"score": 0.10, "threshold": 0.98},
-		"mfa": {"verified": true},
+		"mfa": {"ticket_verified": true, "grace_verified": false},
+	}
+}
+
+# THE regression test for the grace-window finding: a comfortably-warm
+# ambient grace window (as if the user solved a TOTP for some OTHER,
+# unrelated step-up moments ago) must NOT be enough to allow a sensitive
+# action -- only a ticket scoped to THIS specific action counts. Before the
+# fix, mfa.rego only ever saw one pre-merged "verified" boolean and could
+# not tell this case apart from test_sensitive_action_allowed_after_mfa_verified_end_to_end
+# above.
+test_sensitive_action_still_step_up_with_only_ambient_grace_no_ticket_end_to_end if {
+	authz.decision == {
+		"decision": "step_up",
+		"policy_name": "step_up_required",
+	} with input as {
+		"identity": {"subject": "u1", "role": "admin"},
+		"resource": {"http_method": "DELETE", "route": "/documents/{document_id}", "action": "delete"},
+		"risk_ctx": {"score": 0.10, "threshold": 0.98},
+		"mfa": {"ticket_verified": false, "grace_verified": true},
 	}
 }
 
@@ -273,6 +292,6 @@ test_sensitive_action_step_up_during_bootstrap_end_to_end if {
 		"identity": {"subject": "u1", "role": "admin"},
 		"resource": {"http_method": "DELETE", "route": "/documents/{document_id}", "action": "delete"},
 		"risk_ctx": {"score": null},
-		"mfa": {"verified": false},
+		"mfa": {"ticket_verified": false, "grace_verified": false},
 	}
 }
