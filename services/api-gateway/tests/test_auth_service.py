@@ -201,7 +201,7 @@ def test_login_inactive_user_returns_generic_invalid_credentials():
     asyncio.run(_run())
 
 
-def test_login_locked_account_returns_account_locked_without_checking_password():
+def test_login_locked_account_still_returns_account_locked_status_internally():
     async def _run():
         user = _user(locked_until=datetime.now(timezone.utc) + timedelta(minutes=5))
         user_repo = FakeUserRepository(records_by_email={user.email: user})
@@ -211,6 +211,29 @@ def test_login_locked_account_returns_account_locked_without_checking_password()
 
         assert result.status == LoginStatus.ACCOUNT_LOCKED
         assert user.failed_login_attempts == 0  # untouched -- locked check short-circuits
+        # LoginStatus.ACCOUNT_LOCKED is still returned to the CALLER of
+        # AuthService.login (kept for internal audit-log accuracy -- see
+        # routers/auth.py, which now maps it to the exact same external
+        # response as INVALID_CREDENTIALS). This test only asserts the
+        # service layer's own contract, not the HTTP response shape.
+
+    asyncio.run(_run())
+
+
+def test_login_locked_account_denies_even_with_correct_password():
+    # Regression test for the account-existence oracle this fix closes: the
+    # real Argon2id check now always runs (see AuthService.login), but its
+    # result must still be ignored while locked -- a locked account must
+    # deny access regardless of whether the password was actually correct.
+    async def _run():
+        user = _user(locked_until=datetime.now(timezone.utc) + timedelta(minutes=5))
+        user_repo = FakeUserRepository(records_by_email={user.email: user})
+        service = _service(user_repository=user_repo)
+
+        result = await service.login(user.email, "correct-horse-battery-staple")
+
+        assert result.status == LoginStatus.ACCOUNT_LOCKED
+        assert user.failed_login_attempts == 0
 
     asyncio.run(_run())
 

@@ -78,10 +78,24 @@ class AuthService:
             _verify_password_constant_time(_DUMMY_PASSWORD_HASH, password)
             return LoginResult(status=LoginStatus.INVALID_CREDENTIALS)
 
+        # Always run the real Argon2id check for an existing account,
+        # regardless of lock state -- this is what makes a locked account's
+        # response timing indistinguishable from an ordinary wrong-password
+        # attempt. A prior version skipped this while already locked, which
+        # made ACCOUNT_LOCKED both a timing AND a content oracle for account
+        # existence: the lockout state (users.locked_until) only exists for a
+        # real account row, so a distinguishable response/timing for "locked"
+        # vs "invalid" let a caller enumerate which emails are registered by
+        # deliberately tripping the lockout threshold. Closed after a live
+        # audit -- see SECURITY.md. The router now also collapses both
+        # statuses into one identical external response; LoginStatus.ACCOUNT_LOCKED
+        # is kept here only for internal audit-log accuracy.
+        password_ok = _verify_password_constant_time(user.password_hash, password)
+
         if user.locked_until is not None and user.locked_until > now:
             return LoginResult(status=LoginStatus.ACCOUNT_LOCKED)
 
-        if not _verify_password_constant_time(user.password_hash, password):
+        if not password_ok:
             updated = await self.user_repository.record_failed_login(
                 user.user_id,
                 max_attempts=self.settings.login_max_failed_attempts,

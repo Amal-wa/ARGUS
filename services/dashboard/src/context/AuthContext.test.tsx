@@ -375,14 +375,18 @@ describe("AuthContext login error messages", () => {
     vi.unstubAllGlobals();
   });
 
-  it("a 429 (account locked) shows a distinct message, not the generic 'check email and password'", async () => {
+  it("a 429 during login shows a rate-limit message, not a locked-account message", async () => {
+    // 429 on /auth/login can now only ever mean the IP-level rate limit
+    // (middleware/rate_limit.py) -- account lockout was folded into the
+    // generic 401 below (see routers/auth.py), specifically so it's no
+    // longer distinguishable from a plain wrong password. See SECURITY.md.
     const fetchMock = vi.fn(async (url: string | URL) => {
       const path = String(url);
       if (path.endsWith("/auth/refresh")) {
         return new Response(JSON.stringify({ detail: "invalid refresh token" }), { status: 401 });
       }
       if (path.endsWith("/auth/login")) {
-        return new Response(JSON.stringify({ detail: "account locked" }), { status: 429 });
+        return new Response(JSON.stringify({ detail: "rate limit exceeded" }), { status: 429 });
       }
       throw new Error(`unexpected request: ${path}`);
     });
@@ -396,7 +400,8 @@ describe("AuthContext login error messages", () => {
     });
 
     expect(result.current.isAuthenticated).toBe(false);
-    expect(result.current.error).toMatch(/locked/i);
+    expect(result.current.error).toMatch(/too many login attempts/i);
+    expect(result.current.error).not.toMatch(/locked/i);
     expect(result.current.error).not.toMatch(/check email and password/i);
   });
 
@@ -422,6 +427,35 @@ describe("AuthContext login error messages", () => {
 
     expect(result.current.isAuthenticated).toBe(false);
     expect(result.current.error).toMatch(/check email and password/i);
+  });
+
+  it("a locked account (now mapped to the same 401 as invalid credentials) shows the identical generic message", async () => {
+    // The API response for a locked account is now byte-identical to a
+    // plain wrong password (see api-gateway's test_account_locked_response_is_byte_identical_to_invalid_credentials) --
+    // this proves that indistinguishability holds all the way to the UI,
+    // not just at the wire response.
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      const path = String(url);
+      if (path.endsWith("/auth/refresh")) {
+        return new Response(JSON.stringify({ detail: "invalid refresh token" }), { status: 401 });
+      }
+      if (path.endsWith("/auth/login")) {
+        return new Response(JSON.stringify({ detail: "invalid credentials" }), { status: 401 });
+      }
+      throw new Error(`unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+    await settleMountEffect();
+
+    await act(async () => {
+      await result.current.login("locked-admin@zt.local", "correct-password-but-account-is-locked");
+    });
+
+    expect(result.current.isAuthenticated).toBe(false);
+    expect(result.current.error).toMatch(/check email and password/i);
+    expect(result.current.error).not.toMatch(/locked/i);
   });
 });
 

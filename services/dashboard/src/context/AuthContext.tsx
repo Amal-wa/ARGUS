@@ -62,13 +62,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       accessTokenRef.current = body.access_token;
       setAccessToken(body.access_token);
     } catch (err) {
-      // 429 (routers/auth.py's ACCOUNT_LOCKED branch) is a materially
-      // different situation from a wrong password -- the credentials may be
-      // correct but the account tripped the lockout threshold. Collapsing it
-      // into the generic message told a locked-out admin to go check their
-      // password, which is not the actual problem.
+      // 429 on /auth/login is now ALWAYS the IP-level rate limit
+      // (middleware/rate_limit.py) -- account lockout used to also surface
+      // as a distinct 429 here (routers/auth.py's ACCOUNT_LOCKED branch),
+      // but that made a real, locked account's response distinguishable
+      // from a merely-wrong-password one, which is an account-existence
+      // oracle (only a real account can ever lock). It's now folded into
+      // the same generic 401 as any other invalid-credentials response --
+      // see SECURITY.md. A locked-out admin sees the generic message below,
+      // same as a mistyped password; this is a deliberate trade-off, not an
+      // oversight.
       if (err instanceof ApiError && err.status === 429) {
-        setError("Account temporarily locked after repeated failed logins -- wait a moment and try again.");
+        setError("Too many login attempts from this network -- wait a moment and try again.");
       } else {
         setError("Login failed -- check email and password.");
       }

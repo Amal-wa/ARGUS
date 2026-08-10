@@ -39,13 +39,20 @@ async def login(request: Request):
 
     result = await services.auth_service.login(email, password)
 
-    if result.status == LoginStatus.INVALID_CREDENTIALS:
+    if result.status in (LoginStatus.INVALID_CREDENTIALS, LoginStatus.ACCOUNT_LOCKED):
         # IP-scoped, not user-scoped -- see FeatureVectorService.record_auth_failure.
         # There is no verified identity at all at this point (wrong password,
-        # or the email isn't even registered), so IP is the only trustworthy key.
-        # attempted_email is passed through as audit-only info (see that
-        # method's comment) -- never used as the counting key itself.
+        # locked account, or the email isn't even registered), so IP is the
+        # only trustworthy key. attempted_email is passed through as
+        # audit-only info (see that method's comment) -- never used as the
+        # counting key itself.
         await services.feature_vector_service.record_auth_failure(context.ip_address, attempted_email=email)
+        if result.status == LoginStatus.ACCOUNT_LOCKED:
+            error_code = "account_locked"
+            error_message = "Account temporarily locked due to repeated failed logins"
+        else:
+            error_code = "invalid_credentials"
+            error_message = "Invalid email or password"
         await services.event_logger.write(
             EventPayload(
                 trace_id=context.trace_id,
@@ -54,38 +61,28 @@ async def login(request: Request):
                 http_method=context.method,
                 request_path=context.path,
                 latency_ms=context.latency_ms(),
+                # Reflects what was ACTUALLY sent below (401) -- distinguishing
+                # the two cases lives entirely in error_code/error_message for
+                # an authenticated analyst reading /monitoring/audit, not in
+                # the wire response. See the comment on the return below.
                 http_status=401,
                 event_type="auth_failed",
-                error_code="invalid_credentials",
-                error_message="Invalid email or password",
+                error_code=error_code,
+                error_message=error_message,
                 attempted_email=email,
             )
         )
+        # Deliberately identical response regardless of which branch produced
+        # it -- an unauthenticated caller must never be able to tell "wrong
+        # password" apart from "this real account is locked". Account lockout
+        # state (users.locked_until) only ever exists for a real account row,
+        # so a distinguishable status/body (or, before this fix, a
+        # distinguishable TIMING -- the locked branch used to skip the
+        # Argon2id check entirely) let a caller enumerate registered emails
+        # by deliberately tripping the lockout threshold. Proven live, closed
+        # here and in AuthService.login (which now always runs the real
+        # Argon2id check even for an already-locked account). See SECURITY.md.
         return JSONResponse({"detail": "invalid credentials"}, status_code=401)
-
-    if result.status == LoginStatus.ACCOUNT_LOCKED:
-        # This request itself carried a wrong password too (see
-        # AuthService.login -- ACCOUNT_LOCKED is only returned after a failed
-        # password check, either because it just tripped the lockout
-        # threshold or because a prior request already had), so it counts as
-        # an auth failure from this IP exactly like INVALID_CREDENTIALS does.
-        await services.feature_vector_service.record_auth_failure(context.ip_address, attempted_email=email)
-        await services.event_logger.write(
-            EventPayload(
-                trace_id=context.trace_id,
-                user_id=None,
-                ip_address=context.ip_address,
-                http_method=context.method,
-                request_path=context.path,
-                latency_ms=context.latency_ms(),
-                http_status=429,
-                event_type="auth_failed",
-                error_code="account_locked",
-                error_message="Account temporarily locked due to repeated failed logins",
-                attempted_email=email,
-            )
-        )
-        return JSONResponse({"detail": "account locked"}, status_code=429)
 
     if result.status == LoginStatus.MFA_ENROLLMENT_REQUIRED:
         # No refresh token exists at this stage (see AuthService.login) --

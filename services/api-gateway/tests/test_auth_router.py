@@ -369,7 +369,9 @@ def test_account_locked_also_counts_as_auth_failure_from_ip():
 
     response = client.post("/auth/login", json={"email": "a@zt.local", "password": "wrong"})
 
-    assert response.status_code == 429
+    # 401, not 429 -- see test_account_locked_response_is_byte_identical_to_invalid_credentials
+    # below for why this must be indistinguishable from a plain wrong password.
+    assert response.status_code == 401
     assert asyncio.run(redis.get("auth_failed:ip:203.0.113.9")) == "1"
 
 
@@ -383,8 +385,34 @@ def test_account_locked_also_records_attempted_email():
 
     response = client.post("/auth/login", json={"email": "a@zt.local", "password": "wrong"})
 
-    assert response.status_code == 429
+    assert response.status_code == 401
+    # The wire response no longer distinguishes locked from invalid, but the
+    # audit trail written server-side still must -- an authenticated analyst
+    # reading /monitoring/audit needs the real reason, even though the
+    # unauthenticated caller never sees it.
     assert events.items[0].attempted_email == "a@zt.local"
+    assert events.items[0].error_code == "account_locked"
+
+
+def test_account_locked_response_is_byte_identical_to_invalid_credentials():
+    """The actual regression test for the account-existence oracle: an
+    unauthenticated caller must not be able to tell "wrong password" apart
+    from "this real account is locked" -- only a real account can ever lock
+    (see AuthService.login), so any distinguishable status/body here would
+    let a caller enumerate registered emails by deliberately tripping the
+    lockout threshold. Compares the two responses directly rather than just
+    asserting each independently, so this fails loudly if either branch's
+    response ever drifts from the other again."""
+    locked_service = FakeAuthService(login_result=LoginResult(status=LoginStatus.ACCOUNT_LOCKED))
+    invalid_service = FakeAuthService(login_result=LoginResult(status=LoginStatus.INVALID_CREDENTIALS))
+    locked_client = TestClient(_build_app(locked_service, ip_address="203.0.113.10"))
+    invalid_client = TestClient(_build_app(invalid_service, ip_address="203.0.113.11"))
+
+    locked_response = locked_client.post("/auth/login", json={"email": "a@zt.local", "password": "wrong"})
+    invalid_response = invalid_client.post("/auth/login", json={"email": "a@zt.local", "password": "wrong"})
+
+    assert locked_response.status_code == invalid_response.status_code == 401
+    assert locked_response.json() == invalid_response.json() == {"detail": "invalid credentials"}
 
 
 def test_successful_login_does_not_touch_auth_failed_ip_counter():
