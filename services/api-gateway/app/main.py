@@ -9,8 +9,9 @@ from sqlalchemy import text
 from app.core.events import build_sqlalchemy_event_logger
 from app.core.database import build_async_session_factory
 from app.core.isolation_forest_client import IsolationForestClient
-from app.core.opa_client import OpaClient, build_opa_ssl_context
+from app.core.opa_client import OpaClient
 from app.core.redis_client import create_redis_client
+from app.core.tls import build_gateway_client_ssl_context
 from app.core.security import JWTVerifier
 from app.core.settings import GatewaySettings
 from app.core.repositories import (
@@ -62,26 +63,37 @@ def build_app(
     security = JWTVerifier(settings=settings, redis_client=redis_client, vault_client=vault_client)
     repository = AuthorizationRepository(session_factory)
     feature_vector_service = FeatureVectorService(redis_client=redis_client)
-    # mTLS is mandatory whenever opa_url is https:// (the docker-compose
-    # default) -- derived from the URL scheme rather than a second, separate
-    # flag, so "https:// but mTLS disabled" can't exist as a contradictory
-    # config state. Only a deliberately-downgraded http:// OPA_URL (local
-    # debugging without the Docker stack/certs) skips it.
-    opa_ssl_context = (
-        build_opa_ssl_context(
-            client_cert_path=settings.opa_client_cert_path,
-            client_key_path=settings.opa_client_key_path,
-            ca_cert_path=settings.opa_ca_cert_path,
+    # mTLS is mandatory whenever a peer's URL is https:// (the docker-compose
+    # default for both OPA and Isolation Forest) -- derived from each URL's
+    # own scheme rather than a second, separate flag, so "https:// but mTLS
+    # disabled" can't exist as a contradictory config state. Only a
+    # deliberately-downgraded http:// URL (local debugging without the
+    # Docker stack/certs) skips it, independently per peer.
+    #
+    # One SSLContext, built once, shared by both clients: it's the same
+    # Gateway identity (gateway-client cert) verifying against the same
+    # internal CA for both peers, so there is no reason to build it twice.
+    # Only built at all if at least one peer needs it, to avoid a pointless
+    # cert-file read when both are deliberately downgraded to http://.
+    gateway_client_ssl_context = (
+        build_gateway_client_ssl_context(
+            client_cert_path=settings.gateway_client_cert_path,
+            client_key_path=settings.gateway_client_key_path,
+            ca_cert_path=settings.internal_ca_cert_path,
         )
-        if settings.opa_url.startswith("https://")
+        if settings.opa_url.startswith("https://") or settings.isolation_forest_url.startswith("https://")
         else None
     )
     opa_client = OpaClient(
         base_url=settings.opa_url,
         decision_path=settings.opa_decision_path,
-        ssl_context=opa_ssl_context,
+        ssl_context=gateway_client_ssl_context if settings.opa_url.startswith("https://") else None,
     )
-    scoring_client = IsolationForestClient(base_url=settings.isolation_forest_url, score_path=settings.isolation_forest_score_path)
+    scoring_client = IsolationForestClient(
+        base_url=settings.isolation_forest_url,
+        score_path=settings.isolation_forest_score_path,
+        ssl_context=gateway_client_ssl_context if settings.isolation_forest_url.startswith("https://") else None,
+    )
     authorization_service = AuthorizationService(
         redis_client=redis_client,
         opa_client=opa_client,

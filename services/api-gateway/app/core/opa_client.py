@@ -11,23 +11,13 @@ from urllib.request import Request, urlopen
 from app.core.errors import OpaUnavailableError
 from app.schemas.authorization import OpaDecision, OpaDecisionResult, OpaPolicyInput
 
-
-def build_opa_ssl_context(*, client_cert_path: str, client_key_path: str, ca_cert_path: str) -> ssl.SSLContext:
-    # mTLS Gateway<->OPA: OPA runs with --authentication=tls (see
-    # docker-compose.yml), so it requires a client certificate signed by the
-    # same internal CA that signed its own server certificate (both issued
-    # by vault-init.sh's PKI role from one root CA). TLS 1.3 only, matching
-    # OPA's own --min-tls-version 1.3 -- both sides enforce the floor
-    # explicitly rather than relying on implicit negotiation.
-    # load_cert_chain/load_verify_locations raise (FileNotFoundError/
-    # ssl.SSLError) if a path is missing or invalid -- deliberately no
-    # pre-check here, so a misconfigured deployment fails loudly at startup
-    # instead of falling back to an unauthenticated connection.
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    context.minimum_version = ssl.TLSVersion.TLSv1_3
-    context.load_verify_locations(cafile=ca_cert_path)
-    context.load_cert_chain(certfile=client_cert_path, keyfile=client_key_path)
-    return context
+# mTLS Gateway<->OPA: OPA runs with --authentication=tls (see
+# docker-compose.yml), so it requires a client certificate signed by the
+# same internal CA that signed its own server certificate. The SSLContext
+# itself is built by core.tls.build_gateway_client_ssl_context -- shared
+# with IsolationForestClient, since both are the same Gateway identity
+# authenticating to a different internal service signed by the same CA. See
+# that module for why this moved out of being OPA-specific.
 
 
 @dataclass(slots=True)

@@ -36,13 +36,35 @@ risk_decision := "allow" if {
 	not monitoring_audit_access
 }
 
+# is_number alone (used below) blocks type confusion (a string/boolean/object
+# where a number is expected) but NOT a numerically well-typed value outside
+# the plausible [0, 1] probability domain -- is_number(57.0) is true. Proven
+# live: an impersonating/malfunctioning Isolation Forest instance returning
+# risk_score: 57.0 was accepted by is_number's old guard alone, propagated
+# into opa_decision_log, and crashed that table's CHECK (risk_score BETWEEN 0
+# AND 1) constraint with an uncaught exception -- 500'ing every authenticated
+# request in the system on account of a single malformed upstream value, not
+# just a wrong decision for the one request that carried it. The Gateway now
+# also validates this itself (core/isolation_forest_client.py, fails closed
+# with ScoringUnavailableError -> 503 before OPA is ever called), but this
+# guard is deliberate defense in depth: OPA's own contract must not silently
+# trust a well-typed-but-implausible number either, independent of whether
+# the Gateway's own check is ever bypassed, removed, or the endpoint is ever
+# called by something other than this Gateway. See SECURITY.md.
+is_valid_probability(x) if {
+	is_number(x)
+	x >= 0
+	x <= 1
+}
+
 # The threshold is data-derived (the active model's p98, injected by the Gateway from
 # Redis' model:active_threshold), never hardcoded here -- see CLAUDE.md. The Gateway
 # always substitutes its own fallback threshold before OPA sees the input whenever a
 # score is present, so `threshold == null` alongside a non-null score should never
-# happen in practice. The `is_number` guards below are defense in depth for that
-# desync (and for any other malformed value -- a string, boolean, or object, not just
-# null), and they subsume a plain `!= null` check since is_number(null) is also false.
+# happen in practice. The `is_valid_probability` guards below are defense in depth for
+# that desync (and for any other malformed value -- a string, boolean, object, or an
+# out-of-range number, not just null), and they subsume a plain `!= null` check since
+# is_valid_probability(null) is also false.
 #
 # They are NOT just belt-and-braces: Rego's `<`/`>=` are defined over a *total order
 # across all JSON types* (null < false < true < numbers < strings < arrays < objects),
@@ -53,14 +75,15 @@ risk_decision := "allow" if {
 # upstream, the old code (`threshold != null` only) would have evaluated the raw `<`/
 # `>=` comparison anyway and produced a *deterministic, wrong* allow/step_up decision
 # from type-ordering trivia -- a silent fail-open, not a crash and not undefined. The
-# `is_number` guards make both branches actually undefined for non-numeric operands,
-# which is what falls through to decision.rego's fail-closed default (deny) instead --
-# the Gateway-side warning log (for the null-threshold desync case) or the input
-# schema (see policies/schemas/input.json) is what surfaces the underlying problem.
+# `is_valid_probability` guards make both branches actually undefined for non-numeric
+# AND out-of-range operands, which is what falls through to decision.rego's fail-closed
+# default (deny) instead -- the Gateway-side warning log (for the null-threshold desync
+# case) or the input schema (see policies/schemas/input.json) is what surfaces the
+# underlying problem.
 risk_decision := "allow" if {
 	not bootstrap_mode
-	is_number(input.risk_ctx.score)
-	is_number(input.risk_ctx.threshold)
+	is_valid_probability(input.risk_ctx.score)
+	is_valid_probability(input.risk_ctx.threshold)
 	input.risk_ctx.score < input.risk_ctx.threshold
 	not high_distinct_ips
 	not sensitive_action
@@ -69,8 +92,8 @@ risk_decision := "allow" if {
 
 risk_decision := "step_up" if {
 	not bootstrap_mode
-	is_number(input.risk_ctx.score)
-	is_number(input.risk_ctx.threshold)
+	is_valid_probability(input.risk_ctx.score)
+	is_valid_probability(input.risk_ctx.threshold)
 	input.risk_ctx.score >= input.risk_ctx.threshold
 }
 

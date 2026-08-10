@@ -129,14 +129,21 @@ services:
       - VAULT_ADDR=http://vault:8200
       - VAULT_TOKEN=dev-root-token
       - OPA_URL=https://opa:8181
-      # mTLS Gateway<->OPA: the Gateway's own client cert/key (issued by
-      # vault-init.sh's gateway-client PKI role) and the internal CA it uses
-      # to verify OPA's server cert -- same CA that signed OPA's cert, since
-      # both leaves come from the one root generated in vault-init.sh.
-      - OPA_CLIENT_CERT_PATH=/certs/gateway-client.pem
-      - OPA_CLIENT_KEY_PATH=/certs/gateway-client-key.pem
-      - OPA_CA_CERT_PATH=/certs/ca.pem
-      - ISOLATION_FOREST_URL=http://isolation-forest:8001
+      # mTLS Gateway<->internal services: the Gateway's own client cert/key
+      # (issued by vault-init.sh's gateway-client PKI role) and the internal
+      # CA it uses to verify a peer's server cert. ONE identity, shared by
+      # BOTH OPA and Isolation Forest below -- not OPA-specific despite the
+      # historical name of this env var group, since the same CA signed both
+      # peers' server certs from the one root generated in vault-init.sh
+      # (see core/tls.py, main.py).
+      - GATEWAY_CLIENT_CERT_PATH=/certs/gateway-client.pem
+      - GATEWAY_CLIENT_KEY_PATH=/certs/gateway-client-key.pem
+      - INTERNAL_CA_CERT_PATH=/certs/ca.pem
+      # https:// -- Isolation Forest now requires mTLS too (isolation-forest
+      # service block below), same as OPA. Reachability proven live BEFORE
+      # this fix: an unauthenticated impersonator aliased "isolation-forest"
+      # on internal_net was accepted with zero rejection. See SECURITY.md.
+      - ISOLATION_FOREST_URL=https://isolation-forest:8001
       # Empty by default: X-Forwarded-For is ignored unless the DIRECT peer is
       # listed here. Only add an entry when a real reverse proxy (or the
       # traffic generator, fronted by one) sits in front of the gateway --
@@ -236,19 +243,71 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      vault-init:
+        condition: service_completed_successfully
     volumes:
       - models-volume:/models
+      # mTLS Gateway<->Isolation Forest (see SECURITY.md): the server
+      # cert/key issued to this service by vault-init.sh's
+      # isolation-forest-server PKI role, the shared internal CA (to verify
+      # the Gateway's client cert), and -- for the healthcheck below only --
+      # the Gateway's OWN client cert/key, reused rather than fabricating a
+      # separate "self" identity (same principle already applied to
+      # opa-server vs gateway-client: a server cert and a client cert have
+      # different X.509 extended key usages, so this healthcheck presents
+      # itself using the identity that's ACTUALLY meant to have access here).
+      - mtls-certs:/certs:ro
+    # --ssl-cert-reqs 2 = ssl.CERT_REQUIRED: requires and verifies a client
+    # certificate signed by --ssl-ca-certs, which is what makes this mutual,
+    # not just encrypted -- mirrors OPA's --authentication=tls below. Known,
+    # documented gap versus OPA's setup: uvicorn 0.30.x has no CLI-level
+    # "--min-tls-version" equivalent to OPA's --min-tls-version 1.3, so the
+    # negotiated floor here relies on OpenSSL/Python's own defaults rather
+    # than an explicit pin on the SERVER side. In practice this is not a
+    # real downgrade for legitimate Gateway traffic: the Gateway's own
+    # client-side SSLContext (core/tls.py) sets minimum_version = TLSv1_3
+    # and simply won't offer anything lower, so real Gateway<->Isolation
+    # Forest traffic still negotiates TLS 1.3 -- the gap is that a
+    # DIFFERENT, non-Gateway TLS 1.2 client isn't rejected by the server
+    # itself the way OPA would reject one. Documented rather than silently
+    # left implicit.
+    command: >
+      poetry run uvicorn app.main:app --host 0.0.0.0 --port 8001
+      --ssl-keyfile /certs/isolation-forest-server-key.pem
+      --ssl-certfile /certs/isolation-forest-server.pem
+      --ssl-ca-certs /certs/ca.pem
+      --ssl-cert-reqs 2
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health')\""]
+      # Plain urllib.request.urlopen (the old check) would fail the mTLS
+      # handshake outright now (no client cert offered) -- this builds an
+      # SSLContext presenting the Gateway's own client cert, exercising the
+      # actual trust boundary a real caller has to clear, not a weakened
+      # loopback-only shortcut. Connects to the container's own DNS alias
+      # (not "localhost") because the server cert's SAN is "isolation-forest"
+      # -- check_hostname (on by default for PROTOCOL_TLS_CLIENT) would
+      # otherwise reject "localhost" as a hostname mismatch.
+      test:
+        - "CMD-SHELL"
+        - >-
+          python -c "import ssl, urllib.request;
+          ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT);
+          ctx.load_verify_locations(cafile='/certs/ca.pem');
+          ctx.load_cert_chain(certfile='/certs/gateway-client.pem', keyfile='/certs/gateway-client-key.pem');
+          urllib.request.urlopen('https://isolation-forest:8001/health', context=ctx)"
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
     networks:
-      # Corrigé : ajout de dmz_net — Isolation Forest fait partie du pipeline ML
-      # rattaché au Gateway dans archit_finale.pdf, pas seulement de la zone internal.
+      # internal_net only: api-gateway is already a member of internal_net (see its own
+      # networks block), so that alone is sufficient for Gateway -> Isolation Forest
+      # reachability. dmz_net was previously added here on the basis of an architecture
+      # diagram reference (archit_finale.pdf), not a technical need -- removed after a
+      # live audit confirmed scoring continues to work correctly via internal_net alone
+      # (see SECURITY.md). Mirrors the reasoning already applied to exclude
+      # canary-validator from dmz_net: a component only ever called BY the Gateway over
+      # a private network has no business on the more broadly-reachable segment.
       - internal_net
-      - dmz_net
 
   canary-validator:
     build:

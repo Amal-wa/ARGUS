@@ -29,9 +29,9 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "score": { "anyOf": [{ "type": "number" }, { "type": "null" }] },
+        "score": { "anyOf": [{ "type": "number", "minimum": 0, "maximum": 1 }, { "type": "null" }] },
         "model_version": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-        "threshold": { "anyOf": [{ "type": "number" }, { "type": "null" }] }
+        "threshold": { "anyOf": [{ "type": "number", "minimum": 0, "maximum": 1 }, { "type": "null" }] }
       }
     },
     "mfa": {

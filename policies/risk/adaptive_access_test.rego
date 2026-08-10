@@ -94,6 +94,55 @@ test_malformed_threshold_object_leaves_risk_decision_undefined if {
 	}
 }
 
+# Range defense in depth: a well-typed NUMBER outside the plausible [0, 1]
+# probability domain is_number alone would still accept (is_number(57.0) is
+# true) -- proven live: an impersonating/malfunctioning Isolation Forest
+# instance returning risk_score: 57.0 crashed opa_decision_log's CHECK
+# constraint downstream with an uncaught exception. is_valid_probability
+# closes this the same way the type-confusion guards above do: leaves
+# risk_decision undefined rather than evaluating a comparison against a
+# nonsensical value. See SECURITY.md.
+
+test_out_of_range_score_above_one_leaves_risk_decision_undefined if {
+	not adaptive_access.risk_decision with input as {
+		"risk_ctx": {"score": 57.0, "threshold": 0.98},
+	}
+}
+
+test_out_of_range_score_negative_leaves_risk_decision_undefined if {
+	not adaptive_access.risk_decision with input as {
+		"risk_ctx": {"score": -3.0, "threshold": 0.98},
+	}
+}
+
+test_out_of_range_threshold_above_one_leaves_risk_decision_undefined if {
+	not adaptive_access.risk_decision with input as {
+		"risk_ctx": {"score": 0.10, "threshold": 57.0},
+	}
+}
+
+test_out_of_range_threshold_negative_leaves_risk_decision_undefined if {
+	not adaptive_access.risk_decision with input as {
+		"risk_ctx": {"score": 0.10, "threshold": -3.0},
+	}
+}
+
+# Boundary check: 0 and 1 themselves are valid probabilities, not
+# off-by-one-excluded -- inclusive bounds, same discipline as the existing
+# score==threshold boundary test above.
+
+test_score_of_zero_is_valid if {
+	adaptive_access.risk_decision == "allow" with input as {
+		"risk_ctx": {"score": 0.0, "threshold": 0.98},
+	}
+}
+
+test_score_of_one_is_valid if {
+	adaptive_access.risk_decision == "step_up" with input as {
+		"risk_ctx": {"score": 1.0, "threshold": 0.98},
+	}
+}
+
 # Session-hijack signal: independent of the score, so it must override even a
 # comfortably-low score/bootstrap state, but must never fire below 2 or on a
 # malformed feature_vector.

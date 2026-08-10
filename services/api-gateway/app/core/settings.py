@@ -28,14 +28,18 @@ class GatewaySettings:
     vault_totp_key_name: str = os.getenv("VAULT_TOTP_KEY_NAME", "totp-encryption")
     opa_url: str = os.getenv("OPA_URL", "https://opa:8181")
     opa_decision_path: str = os.getenv("OPA_DECISION_PATH", "/v1/data/authz/decision")
-    # mTLS Gateway<->OPA (see CLAUDE.md's OPA bundle section): the Gateway's
-    # own client cert/key and the internal CA used to verify OPA's server
-    # cert, all issued by vault-init.sh's PKI role into the mtls-certs
-    # volume. Only read/used when opa_url is https:// -- see
-    # core/opa_client.build_opa_ssl_context and its call site in main.py.
-    opa_client_cert_path: str = os.getenv("OPA_CLIENT_CERT_PATH", "/certs/gateway-client.pem")
-    opa_client_key_path: str = os.getenv("OPA_CLIENT_KEY_PATH", "/certs/gateway-client-key.pem")
-    opa_ca_cert_path: str = os.getenv("OPA_CA_CERT_PATH", "/certs/ca.pem")
+    # mTLS Gateway<->internal services (OPA, Isolation Forest -- see
+    # CLAUDE.md's mTLS section and SECURITY.md): the Gateway's own client
+    # cert/key and the internal CA used to verify a peer's server cert, all
+    # issued by vault-init.sh's PKI roles into the mtls-certs volume. One
+    # identity, shared by both outbound connections -- not OPA-specific
+    # despite the historical env var names, since the same cert/CA verifies
+    # both peers (signed by the same internal root). See
+    # core/tls.build_gateway_client_ssl_context and its call site in
+    # main.py. Only read/used when a given peer's URL is https://.
+    gateway_client_cert_path: str = os.getenv("GATEWAY_CLIENT_CERT_PATH", "/certs/gateway-client.pem")
+    gateway_client_key_path: str = os.getenv("GATEWAY_CLIENT_KEY_PATH", "/certs/gateway-client-key.pem")
+    internal_ca_cert_path: str = os.getenv("INTERNAL_CA_CERT_PATH", "/certs/ca.pem")
     isolation_forest_url: str = os.getenv("ISOLATION_FOREST_URL", "http://isolation-forest:8001")
     isolation_forest_score_path: str = os.getenv("ISOLATION_FOREST_SCORE_PATH", "/score")
     jwt_issuer: str = os.getenv("JWT_ISSUER", "zt-api-gateway")

@@ -166,6 +166,27 @@ else
     max_ttl="$PKI_TTL"
 fi
 
+# mTLS Gateway<->Isolation Forest: same pattern as opa-server above. No
+# separate CLIENT role needed here -- it's the same Gateway process, the
+# same identity, calling a second internal service, so the existing
+# gateway-client cert is reused as-is for this leg too (see main.py's
+# shared ssl_context). Added after a live audit proved this leg had zero
+# TLS/auth: an unauthenticated impersonator aliased "isolation-forest" on
+# internal_net was accepted with no rejection whatsoever. See SECURITY.md.
+if vault read pki/roles/isolation-forest-server >/dev/null 2>&1; then
+  echo "isolation-forest-server PKI role already exists, skipping."
+else
+  echo "Creating isolation-forest-server PKI role..."
+  vault write pki/roles/isolation-forest-server \
+    allowed_domains="isolation-forest" \
+    allow_bare_domains=true \
+    server_flag=true \
+    client_flag=false \
+    key_usage="DigitalSignature,KeyEncipherment" \
+    ext_key_usage="ServerAuth" \
+    max_ttl="$PKI_TTL"
+fi
+
 if [ -f "$CERTS_DIR/opa-server.pem" ]; then
   echo "opa-server certificate already issued, skipping."
 else
@@ -199,6 +220,20 @@ else
   require_pem "$CERTS_DIR/gateway-client-key.pem" "PRIVATE KEY"
   chmod 644 "$CERTS_DIR/gateway-client.pem"
   chmod 644 "$CERTS_DIR/gateway-client-key.pem"  # same reasoning as opa-server-key.pem above
+fi
+
+if [ -f "$CERTS_DIR/isolation-forest-server.pem" ]; then
+  echo "isolation-forest-server certificate already issued, skipping."
+else
+  echo "Issuing isolation-forest-server certificate..."
+  vault write -format=json pki/issue/isolation-forest-server common_name="isolation-forest" ttl="$PKI_TTL" > /tmp/if-issue.json
+  printf '%b\n' "$(json_field /tmp/if-issue.json certificate)" > "$CERTS_DIR/isolation-forest-server.pem"
+  printf '%b\n' "$(json_field /tmp/if-issue.json private_key)" > "$CERTS_DIR/isolation-forest-server-key.pem"
+  rm -f /tmp/if-issue.json
+  require_pem "$CERTS_DIR/isolation-forest-server.pem" "CERTIFICATE"
+  require_pem "$CERTS_DIR/isolation-forest-server-key.pem" "PRIVATE KEY"
+  chmod 644 "$CERTS_DIR/isolation-forest-server.pem"
+  chmod 644 "$CERTS_DIR/isolation-forest-server-key.pem"  # same reasoning as opa-server-key.pem above
 fi
 
 echo "Vault provisioning complete."

@@ -139,6 +139,23 @@ test_malformed_score_string_denies_at_decision_layer if {
 	}
 }
 
+# Range defense in depth at the full decision layer -- a well-typed but
+# implausible score (is_number(57.0) is true) must fail closed the same way
+# a type-confused one does, not evaluate a comparison against a nonsensical
+# value. Proven live: an impersonating/malfunctioning Isolation Forest
+# instance returning risk_score: 57.0 crashed opa_decision_log's CHECK
+# constraint downstream with an uncaught exception. See SECURITY.md.
+test_out_of_range_score_denies_at_decision_layer if {
+	authz.decision == {
+		"decision": "deny",
+		"policy_name": "malformed_input_deny",
+	} with input as {
+		"identity": {"subject": "u1", "role": "reader"},
+		"resource": {"http_method": "GET", "route": "/documents/{document_id}", "action": "read"},
+		"risk_ctx": {"score": 57.0, "threshold": 0.98},
+	}
+}
+
 test_malformed_score_boolean_denies_at_decision_layer if {
 	authz.decision == {
 		"decision": "deny",
