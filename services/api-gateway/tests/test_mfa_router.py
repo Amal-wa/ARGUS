@@ -10,7 +10,9 @@ from fastapi import Response
 from app.core.errors import MfaAlreadyEnrolledError
 from app.core.settings import GatewaySettings
 from app.middleware.context import RequestContext
-from app.routers.mfa import enroll_mfa
+from app.routers.mfa import enroll_mfa, verify_mfa_challenge
+from app.schemas.authorization import OpaDecision, OpaDecisionResult
+from app.services.mfa_challenge import ChallengeContext, ChallengeVerificationResult, MfaVerificationStatus
 
 
 @dataclass(slots=True)
@@ -83,5 +85,106 @@ def test_enroll_already_enrolled_returns_409_and_does_not_issue_pair():
 
         assert response.status_code == 409
         assert auth_service.calls == []
+
+    asyncio.run(_run())
+
+
+@dataclass(slots=True)
+class FakeMfaChallengeService:
+    result: ChallengeVerificationResult
+
+    async def verify_challenge(self, *, challenge_id, code, claims):
+        return self.result
+
+
+@dataclass(slots=True)
+class RecordingOpaClient:
+    result: OpaDecisionResult
+    payloads: list = field(default_factory=list)
+
+    async def decide(self, payload):
+        self.payloads.append(payload)
+        return self.result
+
+
+@dataclass(slots=True)
+class ExplodingRepository:
+    """Fails the test the moment anything calls write_decision -- this
+    endpoint verifies a challenge, it doesn't itself record an access
+    attempt against opa_decision_log. That row belongs solely to the
+    caller's own retry of the originally-challenged request, once it
+    actually happens, via AuthorizationService.authorize."""
+
+    async def write_decision(self, record):
+        raise AssertionError("verify_mfa_challenge must not write to opa_decision_log itself")
+
+
+class _FakeEventLogger:
+    async def write(self, payload):
+        pass
+
+
+class _VerifyRequest:
+    def __init__(self, app, context, challenge_id, code):
+        self.app = app
+        self.state = SimpleNamespace(gateway_context=context)
+        self._body = {"challenge_id": challenge_id, "code": code}
+
+    async def json(self):
+        return self._body
+
+
+def _verify_request(mfa_challenge_service, opa_client, *, challenge_id="chal-1", code="123456"):
+    authorization_service = SimpleNamespace(opa_client=opa_client, repository=ExplodingRepository())
+    services = SimpleNamespace(
+        mfa_challenge_service=mfa_challenge_service,
+        authorization_service=authorization_service,
+        event_logger=_FakeEventLogger(),
+    )
+    app = SimpleNamespace(state=SimpleNamespace(gateway_services=services))
+    context = RequestContext(claims=SimpleNamespace(subject=uuid4(), role="reader"))
+    return _VerifyRequest(app, context, challenge_id, code)
+
+
+def test_verify_success_does_not_double_log_the_speculative_decision():
+    # Regression test: this endpoint used to call opa_client.decide() AND
+    # independently write_decision() for the ORIGINAL challenged request,
+    # even though that request hasn't actually been retried yet -- the
+    # caller's real retry (once it happens) goes through
+    # AuthorizationService.authorize, which logs its own row for the same
+    # (trace_id, resource) via ticket_verified/grace_verified. Both writers
+    # produced a decision=allow/policy_name=mfa_verified_allow row with
+    # different trace_ids for what looked like one access -- confirmed live
+    # via the dashboard's Audit log: resolving one step-up logged two allow
+    # rows, even though the Gateway's own access log showed only the single
+    # real retried GET. ExplodingRepository below fails loudly if this
+    # endpoint ever touches write_decision again.
+    async def _run():
+        challenge_context = ChallengeContext(
+            user_id=uuid4(),
+            jti=uuid4(),
+            role="reader",
+            resource="/monitoring/audit",
+            action="read",
+            http_method="GET",
+            trace_id=uuid4(),
+            ip_address="127.0.0.1",
+            risk_score=None,
+            model_version=None,
+            threshold=None,
+        )
+        mfa_service = FakeMfaChallengeService(
+            ChallengeVerificationResult(status=MfaVerificationStatus.VERIFIED, context=challenge_context)
+        )
+        opa_client = RecordingOpaClient(OpaDecisionResult(decision=OpaDecision.ALLOW, policy_name="mfa_verified_allow"))
+        request = _verify_request(mfa_service, opa_client)
+
+        body = await verify_mfa_challenge(request)
+
+        assert body == {"decision": "allow"}
+        # opa_client.decide was still called (the endpoint's actual job:
+        # answer "would this now be allowed") -- only the persistence to
+        # opa_decision_log was removed.
+        assert len(opa_client.payloads) == 1
 
     asyncio.run(_run())

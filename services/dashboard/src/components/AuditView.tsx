@@ -1,7 +1,22 @@
 import { useEffect, useState } from "react";
+import type { FormEvent } from "react";
+import { StepUpRequiredError } from "../api/client";
+import { MfaVerificationError, verifyMfaChallenge } from "../api/mfa";
 import { getAudit, getAuditExportBlob } from "../api/monitoring";
 import { useAuth } from "../context/AuthContext";
 import type { AuditResponse, EventAuditResponse } from "../types";
+
+// Maps POST /mfa/challenge/verify's `detail` values (see
+// app/services/mfa_challenge.py's MfaVerificationStatus) to a short,
+// specific message -- so a wrong code reads differently from an expired
+// challenge, rather than one generic "verification failed".
+const MFA_ERROR_MESSAGES: Record<string, string> = {
+  invalid_code: "Incorrect code -- try again.",
+  challenge_expired: "This challenge expired (2 min TTL) -- close and reopen Audit to get a new one.",
+  mfa_locked: "Too many failed attempts -- MFA is temporarily locked for this account.",
+  totp_replayed: "That code was already used -- wait for the next one.",
+  mfa_not_configured: "This account has no MFA enrolled.",
+};
 
 interface AuditViewProps {
   onClose: () => void;
@@ -57,6 +72,18 @@ export function AuditView({ onClose }: AuditViewProps) {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
 
+  // monitoring_audit_access (adaptive_access.rego) forces step-up
+  // unconditionally on /monitoring/audit -- getAudit throws StepUpRequiredError
+  // (via getJson) instead of a generic ApiError when that happens. challengeId
+  // set means "show the code prompt instead of the table"; retryTick is bumped
+  // after a successful verify to re-run the fetch effect below without
+  // duplicating its query-building logic.
+  const [challengeId, setChallengeId] = useState<string | null>(null);
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaSubmitting, setMfaSubmitting] = useState(false);
+  const [mfaError, setMfaError] = useState<string | null>(null);
+  const [retryTick, setRetryTick] = useState(0);
+
   useEffect(() => {
     const timer = setTimeout(() => {
       setUserEmail(userEmailInput);
@@ -66,7 +93,18 @@ export function AuditView({ onClose }: AuditViewProps) {
   }, [userEmailInput]);
 
   useEffect(() => {
+    // A pending challenge means the last attempt already came back
+    // step_up_required -- page/filter/mode controls are disabled below while
+    // challengeId is set, so this dep normally can't change out from under
+    // us, but this guard is the actual thing that stops a re-fetch: without
+    // it, any future control that's added without remembering to disable it
+    // would silently spam a fresh step-up challenge (and a fresh
+    // opa_decision_log row) on every interaction instead of just once. The
+    // only way out of this branch is a successful verify, which clears
+    // challengeId and bumps retryTick together.
+    if (challengeId) return;
     let cancelled = false;
+    const controller = new AbortController();
     setLoading(true);
     const query = {
       page,
@@ -78,25 +116,86 @@ export function AuditView({ onClose }: AuditViewProps) {
         ? { decision: decision || undefined }
         : { eventType: eventType || undefined, eventsMode: true }),
     };
-    const request =
-      mode === "decisions" ? getAudit<AuditResponse>(authFetch, query) : getAudit<EventAuditResponse>(authFetch, query);
-    request
-      .then((response) => {
-        if (cancelled) return;
-        setData(response);
-        setError(null);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : "request failed");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+
+    // React StrictMode double-invokes mount effects in dev (mount → cleanup
+    // → mount, synchronously, before any microtask runs). An AbortController
+    // alone doesn't fix this for THIS endpoint: `getAudit`'s underlying
+    // fetch is dispatched the moment this effect body runs, and the Gateway
+    // pipeline has no disconnect-awareness (nothing in GatewayMiddleware
+    // checks `request.is_disconnected()` between steps) -- once dispatched,
+    // aborting client-side doesn't stop the server from completing the
+    // authorize call and persisting a decision. And /monitoring/audit's
+    // decision is never a no-op: monitoring_audit_access mints a fresh MFA
+    // challenge and logs a step_up unconditionally on every unresolved
+    // attempt. Confirmed live: with only `cancelled` + `controller.abort()`
+    // (no defer), opening Audit for the first time still logged two step_up
+    // rows, not one -- the abort always lost the race against dispatch.
+    //
+    // Deferring the actual dispatch by one microtask fixes this at the
+    // right layer: StrictMode's cleanup-then-remount happens synchronously,
+    // so the first invocation's cleanup always sets its OWN `cancelled` to
+    // true before ITS deferred dispatch below ever runs -- the dispatch is
+    // skipped entirely rather than fired and then (ineffectively) aborted.
+    // The second, surviving invocation's microtask runs normally and is the
+    // only one that ever calls the network. A genuine deps change (paging,
+    // filtering) isn't double-invoked by StrictMode in the first place, so
+    // this one-microtask delay is invisible there -- it only collapses the
+    // dev-only synchronous double-mount down to a single real request.
+    Promise.resolve().then(() => {
+      if (cancelled) return;
+      const request =
+        mode === "decisions"
+          ? getAudit<AuditResponse>(authFetch, query, controller.signal)
+          : getAudit<EventAuditResponse>(authFetch, query, controller.signal);
+      request
+        .then((response) => {
+          if (cancelled) return;
+          setData(response);
+          setError(null);
+          setChallengeId(null);
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          if (err instanceof StepUpRequiredError) {
+            // Not a query failure -- don't touch `error`/`data`, just switch
+            // the panel body to the code prompt below.
+            setChallengeId(err.challengeId);
+            setMfaError(null);
+            return;
+          }
+          setError(err instanceof Error ? err.message : "request failed");
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    });
+
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [authFetch, mode, page, userEmail, decision, eventType, from, to]);
+  }, [authFetch, mode, page, userEmail, decision, eventType, from, to, retryTick, challengeId]);
+
+  async function handleVerify(e: FormEvent) {
+    e.preventDefault();
+    setMfaSubmitting(true);
+    setMfaError(null);
+    try {
+      await verifyMfaChallenge(authFetch, challengeId!, mfaCode);
+      // Success -- clear the prompt and re-run the audit fetch effect above.
+      // The action ticket this just consumed is scoped to /monitoring/audit
+      // specifically, but the broader grace window (5 min) is what actually
+      // covers this retry and any further pagination/filter changes.
+      setChallengeId(null);
+      setMfaCode("");
+      setRetryTick((t) => t + 1);
+    } catch (err) {
+      const detail = err instanceof MfaVerificationError ? err.detail : "verification_failed";
+      setMfaError(MFA_ERROR_MESSAGES[detail] ?? "Verification failed -- try again.");
+    } finally {
+      setMfaSubmitting(false);
+    }
+  }
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.page_size)) : 1;
 
@@ -157,7 +256,7 @@ export function AuditView({ onClose }: AuditViewProps) {
         <div className="audit-panel__header">
           <span className="card__title">Audit log</span>
           <span className="pagination">
-            <button className="btn" onClick={handleExport} disabled={exporting}>
+            <button className="btn" onClick={handleExport} disabled={exporting || challengeId !== null}>
               {exporting ? "Exporting…" : "Export CSV"}
             </button>
             <button className="btn" onClick={onClose}>
@@ -167,10 +266,18 @@ export function AuditView({ onClose }: AuditViewProps) {
         </div>
 
         <div className="chip-row" style={{ marginBottom: 12 }}>
-          <button className={`chip ${mode === "decisions" ? "chip--active" : ""}`} onClick={() => switchMode("decisions")}>
+          <button
+            className={`chip ${mode === "decisions" ? "chip--active" : ""}`}
+            onClick={() => switchMode("decisions")}
+            disabled={challengeId !== null}
+          >
             Decisions
           </button>
-          <button className={`chip ${mode === "events" ? "chip--active" : ""}`} onClick={() => switchMode("events")}>
+          <button
+            className={`chip ${mode === "events" ? "chip--active" : ""}`}
+            onClick={() => switchMode("events")}
+            disabled={challengeId !== null}
+          >
             Events
           </button>
         </div>
@@ -181,16 +288,27 @@ export function AuditView({ onClose }: AuditViewProps) {
             placeholder="user_email"
             value={userEmailInput}
             onChange={(e) => setUserEmailInput(e.target.value)}
+            disabled={challengeId !== null}
           />
           {mode === "decisions" ? (
-            <select className="select" value={decision} onChange={(e) => applyFilter(setDecision)(e.target.value)}>
+            <select
+              className="select"
+              value={decision}
+              onChange={(e) => applyFilter(setDecision)(e.target.value)}
+              disabled={challengeId !== null}
+            >
               <option value="">any decision</option>
               <option value="allow">allow</option>
               <option value="step_up">step_up</option>
               <option value="deny">deny</option>
             </select>
           ) : (
-            <select className="select" value={eventType} onChange={(e) => applyFilter(setEventType)(e.target.value)}>
+            <select
+              className="select"
+              value={eventType}
+              onChange={(e) => applyFilter(setEventType)(e.target.value)}
+              disabled={challengeId !== null}
+            >
               <option value="">any event type</option>
               {EVENT_TYPES.map((type) => (
                 <option key={type} value={type}>
@@ -205,6 +323,7 @@ export function AuditView({ onClose }: AuditViewProps) {
             value={from}
             onChange={(e) => applyFilter(setFrom)(e.target.value)}
             title="from"
+            disabled={challengeId !== null}
           />
           <input
             className="text-input"
@@ -212,12 +331,40 @@ export function AuditView({ onClose }: AuditViewProps) {
             value={to}
             onChange={(e) => applyFilter(setTo)(e.target.value)}
             title="to"
+            disabled={challengeId !== null}
           />
           {error ? <span className="card__degraded">degraded</span> : null}
         </div>
 
         <div className="audit-panel__body">
-          {loading && !data ? (
+          {challengeId ? (
+            <form className="mfa-step-up" onSubmit={handleVerify}>
+              <p>
+                Step-up verification required to view the audit log. Enter the 6-digit
+                code from your authenticator app.
+              </p>
+              <input
+                className="text-input"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                autoFocus
+                placeholder="123456"
+                value={mfaCode}
+                onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              />
+              <div className="chip-row">
+                <button className="btn" type="submit" disabled={mfaSubmitting || mfaCode.length !== 6}>
+                  {mfaSubmitting ? "Verifying…" : "Verify"}
+                </button>
+                <button className="btn" type="button" onClick={onClose}>
+                  Cancel
+                </button>
+              </div>
+              {mfaError ? <span className="card__degraded">{mfaError}</span> : null}
+            </form>
+          ) : loading && !data ? (
             <div className="card__empty">loading…</div>
           ) : !data || data.rows.length === 0 ? (
             <div className="card__empty">no rows for this filter</div>
@@ -295,10 +442,18 @@ export function AuditView({ onClose }: AuditViewProps) {
             page {page} / {totalPages} · {data?.total ?? 0} rows
           </span>
           <span className="pagination">
-            <button className="btn" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+            <button
+              className="btn"
+              disabled={page <= 1 || challengeId !== null}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
               Prev
             </button>
-            <button className="btn" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+            <button
+              className="btn"
+              disabled={page >= totalPages || challengeId !== null}
+              onClick={() => setPage((p) => p + 1)}
+            >
               Next
             </button>
           </span>

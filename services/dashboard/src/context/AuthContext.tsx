@@ -156,21 +156,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           detail = undefined;
         }
 
-        // Guard against regression, not a feature (do NOT build a TOTP entry
-        // flow here): the dashboard only ever calls /auth/* (no OPA) and
-        // /monitoring/* (exempt from ML scoring -- see
+        // /monitoring/* is exempt from ML-score-driven step-up (see
         // AuthorizationService.authorize's MONITORING_PATH_PREFIX branch),
-        // so step_up_required is structurally unreachable from this client
-        // today. This is exactly the bug from the first incident: a
-        // risk-based 401 was misread as "token expired", triggering a
-        // refresh (and, under concurrency, a refresh STORM). If a scored
-        // route is ever added to the dashboard, this branch is what stops
-        // that from silently coming back -- refreshing the access token
-        // does nothing for a step-up challenge, so refreshing would just
-        // burn the single-use refresh token for no benefit.
+        // but NOT from monitoring_audit_access (adaptive_access.rego) --
+        // /monitoring/audit specifically forces step-up unconditionally,
+        // independent of score. So step_up_required IS reachable from this
+        // client today, on that one route. What matters here is narrower
+        // than it might look: refreshing the access token does nothing for
+        // a step-up challenge (so still skip straight past the
+        // refresh-and-retry logic below -- refreshing would just burn the
+        // single-use refresh token for no benefit), but this is a
+        // per-REQUEST need, not a session failure -- the access token stays
+        // completely valid for every other route. Logging out here was the
+        // actual bug (found live: clicking "Audit" hard-killed the whole
+        // dashboard session over a 401 scoped to one panel). The caller
+        // (api/monitoring.ts's getJson, used by AuditView) is what turns
+        // this into a typed StepUpRequiredError with the challenge_id, so
+        // AuditView can resolve it and retry -- this layer just has to NOT
+        // treat it as ordinary token expiry.
         if (detail === "step_up_required") {
-          setError("Step-up verification required — this session cannot continue in the dashboard.");
-          logout();
+          return response;
+        }
+        // POST /mfa/challenge/verify (api/mfa.ts's verifyMfaChallenge, called
+        // from AuditView's step-up prompt) also goes through authFetch and
+        // can itself 401 for reasons that have nothing to do with the access
+        // token: a wrong code, an expired challenge, a replayed code. Same
+        // reasoning as step_up_required -- refreshing the access token fixes
+        // none of these, so they must not fall into the generic
+        // refresh-and-retry branch below either. Found live via this
+        // component's own test suite: a wrong code's 401 was being treated
+        // as ordinary token expiry, the refresh attempt failed (no real
+        // expired-token scenario to recover from), and authFetch logged the
+        // whole session out over what should have been an inline "wrong
+        // code, try again" in AuditView.
+        if (detail === "invalid_code" || detail === "challenge_expired" || detail === "totp_replayed") {
           return response;
         }
         if (detail === "mfa_enrollment_required") {

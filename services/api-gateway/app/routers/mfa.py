@@ -8,7 +8,6 @@ from fastapi.responses import JSONResponse
 from app.core.errors import MfaAlreadyEnrolledError
 from app.core.events import EventPayload
 from app.core.refresh_cookie import set_refresh_cookie
-from app.core.repositories import OpaDecisionRecord
 from app.schemas.authorization import OpaPolicyInput
 from app.services.mfa_challenge import MfaVerificationStatus
 
@@ -155,7 +154,24 @@ async def verify_mfa_challenge(request: Request):
         )
         return JSONResponse({"detail": "totp_replayed"}, status_code=403)
 
-    # VERIFIED: re-evaluate OPA using the original, stored risk_ctx -- no recomputation.
+    # VERIFIED: re-evaluate OPA using the original, stored risk_ctx -- no
+    # recomputation -- purely to answer "would the originally-challenged
+    # request now be allowed", so the caller knows whether retrying it is
+    # worthwhile. This does NOT persist to opa_decision_log: that row
+    # belongs to an actual resource access, and none has happened yet here
+    # -- verifying a challenge isn't itself a request against
+    # challenge_context.resource. The single-use ticket set by
+    # verify_challenge above is what makes the caller's actual retry (the
+    # real GET/POST/etc. against that resource) succeed and get logged
+    # exactly once, by AuthorizationService.authorize itself. Persisting a
+    # second, speculative decision here duplicated that one -- both showed
+    # decision=allow/policy_name=mfa_verified_allow with different trace_ids,
+    # since this code path and the retried request's authorize() call are
+    # two independent writers of what's supposed to be a one-row-per-access
+    # log (caught live: opening the dashboard's Audit log, resolving the
+    # step-up, and watching /monitoring/audit's own retry produced two rows
+    # instead of one -- confirmed via uvicorn's access log showing only the
+    # single real GET).
     challenge_context = result.context
     opa_input = OpaPolicyInput(
         identity={"subject": challenge_context.user_id, "role": challenge_context.role},
@@ -176,23 +192,6 @@ async def verify_mfa_challenge(request: Request):
         is_post_step_up=True,
     )
     decision = await services.authorization_service.opa_client.decide(opa_input)
-    await services.authorization_service.repository.write_decision(
-        OpaDecisionRecord(
-            trace_id=challenge_context.trace_id,
-            user_id=challenge_context.user_id,
-            jti=challenge_context.jti,
-            role=challenge_context.role,
-            resource=challenge_context.resource,
-            action=challenge_context.action,
-            ip_address=challenge_context.ip_address,
-            risk_score=challenge_context.risk_score,
-            model_version=challenge_context.model_version,
-            decision=decision.decision.value.lower(),
-            policy_name=decision.policy_name,
-            reason=decision.reason,
-            latency_ms=context.latency_ms(),
-        )
-    )
 
     if decision.decision.name == "ALLOW":
         return {"decision": "allow"}

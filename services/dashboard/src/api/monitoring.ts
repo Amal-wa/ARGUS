@@ -1,4 +1,4 @@
-import { ApiError } from "./client";
+import { ApiError, StepUpRequiredError } from "./client";
 import type {
   AlertsResponse,
   AuditResponse,
@@ -11,9 +11,31 @@ import type {
 
 export type AuthFetch = (path: string, init?: RequestInit) => Promise<Response>;
 
-async function getJson<T>(authFetch: AuthFetch, path: string): Promise<T> {
-  const response = await authFetch(path);
+async function getJson<T>(authFetch: AuthFetch, path: string, signal?: AbortSignal): Promise<T> {
+  const response = await authFetch(path, signal ? { signal } : undefined);
   if (!response.ok) {
+    // A 401 whose body is specifically step_up_required (today, only
+    // possible on /monitoring/audit -- see adaptive_access.rego's
+    // monitoring_audit_access) carries a challenge_id a caller needs to
+    // resolve it. authFetch itself deliberately does NOT special-case this
+    // beyond not treating it as ordinary token expiry (see AuthContext.tsx)
+    // -- it's returned as a plain Response, so this is where it gets turned
+    // into a typed error a caller can actually act on. clone() so a caller
+    // that doesn't care can still read the body itself if it wants to.
+    if (response.status === 401) {
+      try {
+        const body: unknown = await response.clone().json();
+        const detail = (body as { detail?: unknown })?.detail;
+        const challengeId = (body as { challenge_id?: unknown })?.challenge_id;
+        if (detail === "step_up_required" && typeof challengeId === "string") {
+          throw new StepUpRequiredError(challengeId);
+        }
+      } catch (err) {
+        if (err instanceof StepUpRequiredError) throw err;
+        // Body wasn't JSON / didn't have the expected shape -- fall through
+        // to the generic ApiError below.
+      }
+    }
     // ApiError (not a plain Error) so callers -- specifically the polling
     // hooks' 429 backoff -- can tell "rate limited" apart from every other
     // failure mode without string-matching a message.
@@ -103,11 +125,23 @@ function buildAuditParams(query: AuditQuery): URLSearchParams {
 // set -- see that endpoint's own event_type-selects-the-view branching).
 // Defaults to AuditResponse so every existing (decisions-mode) call site is
 // unaffected.
+// signal is plumbed through (unlike the other getX helpers above) because
+// getAudit is the one call in this module invoked from a mount effect
+// (AuditView) against an endpoint with a real server-side side effect on
+// every attempt -- monitoring_audit_access mints a fresh MFA challenge and
+// logs a decision unconditionally. React StrictMode's dev-only double-invoke
+// of effects would otherwise fire this twice on mount, and cancelling the
+// stale invocation client-side (the `cancelled` flag AuditView already uses
+// for state updates) doesn't stop its request from reaching the backend and
+// being logged -- only an actual abort does. The other getX helpers here are
+// plain reads with no such side effect, so a duplicate dev-mode tick is
+// inconsequential for them and doesn't need this.
 export function getAudit<T extends AuditResponse | EventAuditResponse = AuditResponse>(
   authFetch: AuthFetch,
-  query: AuditQuery = {}
+  query: AuditQuery = {},
+  signal?: AbortSignal
 ): Promise<T> {
-  return getJson(authFetch, `/monitoring/audit?${buildAuditParams(query).toString()}`);
+  return getJson(authFetch, `/monitoring/audit?${buildAuditParams(query).toString()}`, signal);
 }
 
 // CSV export -- reuses buildAuditParams so filters can never drift from

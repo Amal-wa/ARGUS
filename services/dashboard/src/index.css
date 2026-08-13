@@ -835,6 +835,20 @@ button {
   padding: 0 20px;
 }
 
+.mfa-step-up {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 320px;
+  padding: 24px 0;
+}
+
+.mfa-step-up input {
+  font-size: 1.2rem;
+  letter-spacing: 0.2em;
+  text-align: center;
+}
+
 .audit-table {
   width: 100%;
   border-collapse: collapse;

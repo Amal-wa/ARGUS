@@ -142,7 +142,16 @@ describe("AuthContext 401 detail branching", () => {
     vi.unstubAllGlobals();
   });
 
-  it("a step_up_required 401 never calls /auth/refresh and logs out with a clear message", async () => {
+  it("a step_up_required 401 does NOT log out or refresh -- the session survives, the raw response is returned to the caller", async () => {
+    // monitoring_audit_access (adaptive_access.rego) makes this genuinely
+    // reachable today, on /monitoring/audit specifically -- unlike the old
+    // version of this test (pre-fix), this is no longer a hypothetical
+    // "must never happen" case. Found live: the old behavior (logout) killed
+    // the WHOLE dashboard session over a 401 scoped to one panel, even
+    // though the access token stayed perfectly valid for every other route.
+    // api/monitoring.ts's getJson (not authFetch) is what turns this response
+    // into a typed StepUpRequiredError with the challenge_id -- authFetch's
+    // only job is to not misroute it into the refresh-and-retry path.
     let refreshCalls = 0;
 
     const fetchMock = vi.fn(async (url: string | URL) => {
@@ -155,15 +164,8 @@ describe("AuthContext 401 detail branching", () => {
       }
       if (path.endsWith("/auth/refresh")) {
         refreshCalls += 1;
-        if (refreshCalls === 1) {
-          return new Response(JSON.stringify({ detail: "invalid refresh token" }), { status: 401 });
-        }
         return new Response(JSON.stringify({ access_token: "new-access", token_type: "bearer", expires_in: 900 }), { status: 200 });
       }
-      // A scored route returning step_up_required, hypothetically -- the
-      // whole point of this test is that this must be structurally
-      // unreachable in practice (dashboard only calls /auth/* and exempt
-      // /monitoring/* routes), but the guard must hold if it ever weren't.
       return new Response(JSON.stringify({ detail: "step_up_required", challenge_id: "abc" }), { status: 401 });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -177,13 +179,17 @@ describe("AuthContext 401 detail branching", () => {
     await waitFor(() => expect(result.current.isAuthenticated).toBe(true));
 
     const refreshCallsBeforeAuthFetch = refreshCalls;
+    let response: Response | undefined;
     await act(async () => {
-      await result.current.authFetch("/monitoring/stats");
+      response = await result.current.authFetch("/monitoring/audit");
     });
 
-    expect(refreshCalls).toBe(refreshCallsBeforeAuthFetch); // unchanged
-    await waitFor(() => expect(result.current.isAuthenticated).toBe(false));
-    expect(result.current.error).toMatch(/step-up/i);
+    expect(refreshCalls).toBe(refreshCallsBeforeAuthFetch); // no refresh attempt
+    expect(response?.status).toBe(401);
+    const body = await response?.json();
+    expect(body).toEqual({ detail: "step_up_required", challenge_id: "abc" }); // preserved for the caller
+    expect(result.current.isAuthenticated).toBe(true); // session survives
+    expect(result.current.error).toBeNull(); // not a login-screen concern
   });
 
   it("an mfa_enrollment_required 401 never calls /auth/refresh and logs out with a clear message", async () => {

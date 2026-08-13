@@ -13,6 +13,20 @@ export class ApiError extends Error {
   }
 }
 
+// Thrown instead of the generic ApiError when a 401's body is specifically
+// {"detail": "step_up_required", "challenge_id": ...} -- see api/monitoring.ts's
+// getJson. Carries challengeId so a caller (today, only AuditView) can resolve
+// it via POST /mfa/challenge/verify (api/mfa.ts) and retry, instead of the
+// request just failing generically.
+export class StepUpRequiredError extends ApiError {
+  challengeId: string;
+
+  constructor(challengeId: string) {
+    super(401, "step_up_required");
+    this.challengeId = challengeId;
+  }
+}
+
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   return fetch(`${BASE_URL}${path}`, init);
 }
