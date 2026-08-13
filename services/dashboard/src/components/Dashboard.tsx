@@ -1,11 +1,13 @@
 import { useMemo, useState } from "react";
-import { getAlerts, getRiskTimeline, getStats, getSystemStatus } from "../api/monitoring";
+import { getAlerts, getAnomalies, getRiskTimeline, getStats, getSystemStatus } from "../api/monitoring";
 import { useAuth } from "../context/AuthContext";
 import { useDecisionFeed } from "../hooks/useDecisionFeed";
 import { usePolling } from "../hooks/usePolling";
 import {
   ALERTS_INITIAL_DELAY_MS,
   ALERTS_POLL_MS,
+  ANOMALIES_INITIAL_DELAY_MS,
+  ANOMALIES_POLL_MS,
   RISK_TIMELINE_INITIAL_DELAY_MS,
   RISK_TIMELINE_POLL_MS,
   STATS_INITIAL_DELAY_MS,
@@ -14,6 +16,7 @@ import {
   SYSTEM_STATUS_POLL_MS,
 } from "../pollingIntervals";
 import { AlertsPanel } from "./AlertsPanel";
+import { AnomaliesPanel } from "./AnomaliesPanel";
 import { AuditView } from "./AuditView";
 import { DecisionFeed } from "./DecisionFeed";
 import { Header } from "./Header";
@@ -40,6 +43,12 @@ export function Dashboard() {
     [],
     ALERTS_INITIAL_DELAY_MS
   );
+  const anomalies = usePolling(
+    () => getAnomalies(authFetch, 50, ALERTS_WINDOW_MINUTES),
+    ANOMALIES_POLL_MS,
+    [],
+    ANOMALIES_INITIAL_DELAY_MS
+  );
   const riskTimeline = usePolling(
     () => getRiskTimeline(authFetch, { userEmail: selectedUser === "all" ? undefined : selectedUser }),
     RISK_TIMELINE_POLL_MS,
@@ -56,10 +65,11 @@ export function Dashboard() {
     return Array.from(emails).sort();
   }, [feed.rows]);
 
-  const anomalyCount = useMemo(
-    () => (alerts.data?.alerts ?? []).filter((a) => a.type === "anomaly").length,
-    [alerts.data]
-  );
+  // Sourced from the dedicated /monitoring/anomalies feed (AnomaliesPanel
+  // below), not by filtering alerts.data -- same underlying event_anomaly
+  // rows either way, but this keeps the stat card and the panel it's
+  // describing from ever being able to disagree.
+  const anomalyCount = anomalies.data?.anomalies.length ?? 0;
 
   const isLive = stats.error === null && stats.data !== null;
 
@@ -69,6 +79,12 @@ export function Dashboard() {
 
       <div className="dashboard">
         <StatCards stats={stats.data} anomalyCount={anomalyCount} error={stats.error} rateLimited={stats.rateLimited} />
+
+        <AnomaliesPanel
+          anomalies={anomalies.data?.anomalies ?? []}
+          error={anomalies.error}
+          rateLimited={anomalies.rateLimited}
+        />
 
         <div className="row row--middle">
           <RiskTimeline

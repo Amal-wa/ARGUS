@@ -17,6 +17,7 @@ export const DECISIONS_POLL_MS = 2_000;
 export const RISK_TIMELINE_POLL_MS = 5_000;
 export const STATS_POLL_MS = 10_000;
 export const ALERTS_POLL_MS = 10_000;
+export const ANOMALIES_POLL_MS = 10_000;
 export const SYSTEM_STATUS_POLL_MS = 30_000;
 
 // Small per-poller stagger applied only to the FIRST fetch on mount, so five
@@ -29,4 +30,5 @@ export const DECISIONS_INITIAL_DELAY_MS = 0;
 export const RISK_TIMELINE_INITIAL_DELAY_MS = 400;
 export const STATS_INITIAL_DELAY_MS = 800;
 export const ALERTS_INITIAL_DELAY_MS = 1_200;
+export const ANOMALIES_INITIAL_DELAY_MS = 1_400;
 export const SYSTEM_STATUS_INITIAL_DELAY_MS = 1_600;

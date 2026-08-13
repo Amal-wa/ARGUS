@@ -177,6 +177,35 @@ async def get_alerts(request: Request, limit: int = DEFAULT_ALERTS_LIMIT, window
     }
 
 
+@router.get("/monitoring/anomalies")
+async def get_anomalies(request: Request, limit: int = DEFAULT_ALERTS_LIMIT, window_minutes: int = DEFAULT_WINDOW_MINUTES):
+    # Dedicated feed for behavioral-detector's event_anomaly rows, separate
+    # from /monitoring/alerts -- see MonitoringRepository.get_anomalies for
+    # why: anomalies were getting buried in the step_up-dominated alerts
+    # feed with no severity/anomaly_type shown, so the dashboard's Anomalies
+    # panel reads from here instead, with its own limit/window so a burst of
+    # step_ups can't crowd them out.
+    services = request.app.state.gateway_services
+    limit = _clamp(limit, minimum=1, maximum=MAX_ALERTS_LIMIT)
+    window_minutes = _clamp(window_minutes, minimum=1, maximum=MAX_WINDOW_MINUTES)
+
+    anomalies = await services.monitoring_repository.get_anomalies(limit=limit, window_minutes=window_minutes)
+    return {
+        "anomalies": [
+            {
+                "created_at": anomaly.created_at.isoformat(),
+                "user_email": anomaly.user_email,
+                "resource": anomaly.resource,
+                "anomaly_type": anomaly.anomaly_type,
+                "severity": anomaly.severity,
+                "risk_score": anomaly.risk_score,
+                "trace_id": str(anomaly.trace_id) if anomaly.trace_id is not None else None,
+            }
+            for anomaly in anomalies
+        ]
+    }
+
+
 async def _service_health(services) -> dict:
     # Never let one dependency's failure 500 the whole endpoint -- report it
     # instead. This endpoint's entire purpose is to be trustworthy exactly

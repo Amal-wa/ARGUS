@@ -509,6 +509,30 @@ button {
   color: var(--warning);
 }
 
+/* Severity badges (behavioral-detector's event_anomaly.severity) -- distinct
+   from the decision badges above (allow/deny/step_up describe an OUTCOME,
+   these describe how far past threshold an anomaly's risk_score sits, see
+   CLAUDE.md's Behavioral detector section for the ratio/bucket formula). */
+.badge--low {
+  background: rgba(42, 163, 224, 0.12);
+  color: var(--accent);
+}
+
+.badge--medium {
+  background: rgba(224, 161, 58, 0.15);
+  color: var(--warning);
+}
+
+.badge--high {
+  background: rgba(226, 75, 74, 0.15);
+  color: var(--danger-bright);
+}
+
+.badge--critical {
+  background: rgba(201, 53, 74, 0.28);
+  color: var(--danger-bright);
+}
+
 /* --------------------------------------------------------------- alerts */
 
 .alert-list {
@@ -565,6 +589,85 @@ button {
   color: var(--text-muted);
   font-size: 12px;
   margin-top: 2px;
+}
+
+/* ------------------------------------------------------------ anomalies */
+/* A dedicated, full-width feed for behavioral-detector's event_anomaly rows
+   -- previously only visible mixed into .alert-list above (still true;
+   this doesn't remove them from there), where they had no severity/type
+   shown and competed with usually-far-more-frequent step_ups for the same
+   limit. Laid out as a grid (not the alert-list's single narrow column) so
+   several anomalies are visible without scrolling -- this panel is meant to
+   be the thing you glance at, not something you scroll through. */
+
+.anomaly-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.anomaly-item {
+  border-left: 3px solid var(--text-muted);
+  background: var(--card-bg);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  padding: 8px 12px;
+  animation: slide-in var(--transition-med);
+}
+
+.anomaly-item--low {
+  border-left-color: var(--accent);
+}
+
+.anomaly-item--medium {
+  border-left-color: var(--warning);
+}
+
+.anomaly-item--high {
+  border-left-color: var(--danger-bright);
+}
+
+.anomaly-item--critical {
+  border-left-color: var(--danger-bright);
+  background: var(--danger-bg);
+}
+
+.anomaly-item--pulse {
+  animation: slide-in var(--transition-med), pulse-alert 900ms ease-out;
+}
+
+.anomaly-item__top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.anomaly-item__user {
+  font-weight: 700;
+  color: var(--text-primary);
+  font-size: 13px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.anomaly-item__score {
+  font-family: var(--font-display);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+
+.anomaly-item__meta {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ---------------------------------------------------------- system status */

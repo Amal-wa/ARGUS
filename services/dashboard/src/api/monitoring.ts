@@ -1,6 +1,7 @@
 import { ApiError, StepUpRequiredError } from "./client";
 import type {
   AlertsResponse,
+  AnomaliesResponse,
   AuditResponse,
   DecisionsResponse,
   EventAuditResponse,
@@ -77,6 +78,10 @@ export function getRiskTimeline(authFetch: AuthFetch, query: RiskTimelineQuery =
 
 export function getAlerts(authFetch: AuthFetch, limit = 50, windowMinutes = 60): Promise<AlertsResponse> {
   return getJson(authFetch, `/monitoring/alerts?limit=${limit}&window_minutes=${windowMinutes}`);
+}
+
+export function getAnomalies(authFetch: AuthFetch, limit = 50, windowMinutes = 60): Promise<AnomaliesResponse> {
+  return getJson(authFetch, `/monitoring/anomalies?limit=${limit}&window_minutes=${windowMinutes}`);
 }
 
 export function getSystemStatus(authFetch: AuthFetch): Promise<SystemStatusResponse> {

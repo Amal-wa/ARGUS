@@ -80,6 +80,28 @@ export interface AlertsResponse {
   alerts: AlertRow[];
 }
 
+export type AnomalySeverity = "low" | "medium" | "high" | "critical";
+
+export interface AnomalyRow {
+  created_at: string;
+  user_email: string | null;
+  resource: string | null;
+  // Not a strict union -- the DB enum (anomaly_type) has a "behavioral"
+  // member alongside behavioral-detector's 4 actual rule-based checks
+  // (resource_access/authentication/network/authorization, see CLAUDE.md's
+  // Behavioral detector section), but nothing currently writes it. Typing
+  // this as a union that doesn't cover it would be a silent lie the moment
+  // it's used.
+  anomaly_type: string;
+  severity: AnomalySeverity;
+  risk_score: number;
+  trace_id: string | null;
+}
+
+export interface AnomaliesResponse {
+  anomalies: AnomalyRow[];
+}
+
 export type ServiceHealthValue = "healthy" | "unhealthy" | "up" | "down";
 
 export interface SystemStatusResponse {

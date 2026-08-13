@@ -684,6 +684,17 @@ class AlertRow:
 
 
 @dataclass(slots=True)
+class AnomalyRow:
+    created_at: datetime
+    user_email: str | None
+    resource: str | None
+    anomaly_type: str
+    severity: str
+    risk_score: float
+    trace_id: UUID | None
+
+
+@dataclass(slots=True)
 class ModelRegistryRow:
     model_version: str
     created_at: datetime
@@ -916,6 +927,58 @@ class MonitoringRepository:
         ]
         alerts.sort(key=lambda alert: alert.created_at, reverse=True)
         return alerts[:limit]
+
+    async def get_anomalies(self, *, limit: int, window_minutes: int) -> list[AnomalyRow]:
+        # Dedicated, unmixed feed for behavioral-detector's event_anomaly rows
+        # -- get_alerts above already merges these into the general step_up
+        # feed, but that merge is exactly what buried them: anomalies (a
+        # distinct attack-pattern detection, not routine step-up friction)
+        # competed for the same `limit` as step_ups, which are usually far
+        # more frequent, and had no severity/anomaly_type surfaced at all --
+        # a critical resource-enumeration hit looked identical to a step_up
+        # row unless you opened the audit trail. This query and get_alerts's
+        # anomaly_stmt intentionally share the same join shape (see that
+        # method's outerjoin comment for why it's an outerjoin, not a join).
+        since = _window_since(window_minutes)
+        join = event_anomaly_table.outerjoin(
+            opa_decision_log_table, event_anomaly_table.c.id_log == opa_decision_log_table.c.id
+        ).outerjoin(users_table, opa_decision_log_table.c.user_id == users_table.c.user_id)
+        stmt = (
+            select(
+                opa_decision_log_table.c.trace_id,
+                event_anomaly_table.c.timestamp,
+                users_table.c.email,
+                opa_decision_log_table.c.resource,
+                event_anomaly_table.c.anomaly_type,
+                event_anomaly_table.c.severity,
+                event_anomaly_table.c.risk_score,
+                event_anomaly_table.c.subject,
+            )
+            .select_from(join)
+            .where(event_anomaly_table.c.timestamp >= since)
+            .order_by(event_anomaly_table.c.timestamp.desc())
+            .limit(limit)
+        )
+
+        async with self._session_factory() as session:
+            rows = (await session.execute(stmt)).all()
+
+        return [
+            AnomalyRow(
+                created_at=row.timestamp,
+                user_email=row.email,
+                # Same fallback as get_alerts: resource is NULL exactly when
+                # id_log is (authentication anomalies have no decision to
+                # join to), so subject (the attacker IP for that one type)
+                # keeps the row meaningful instead of showing a blank.
+                resource=row.resource if row.resource is not None else row.subject,
+                anomaly_type=row.anomaly_type,
+                severity=row.severity,
+                risk_score=row.risk_score,
+                trace_id=row.trace_id,
+            )
+            for row in rows
+        ]
 
     async def get_model_registry_row(self, version: str) -> ModelRegistryRow | None:
         stmt = select(

@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 from app.core.redis_client import InMemoryRedis
 from app.core.repositories import (
     AlertRow,
+    AnomalyRow,
     AuditPage,
     DecisionAuditRow,
     DecisionLogRow,
@@ -16,7 +17,15 @@ from app.core.repositories import (
     ModelRegistryRow,
     RiskTimelinePoint,
 )
-from app.routers.monitoring import get_alerts, get_audit, get_risk_timeline, get_stats, get_system_status, list_decisions
+from app.routers.monitoring import (
+    get_alerts,
+    get_anomalies,
+    get_audit,
+    get_risk_timeline,
+    get_stats,
+    get_system_status,
+    list_decisions,
+)
 
 
 @dataclass(slots=True)
@@ -39,6 +48,17 @@ class _Record:
 
 
 @dataclass(slots=True)
+class _AnomalyRecord:
+    created_at: datetime
+    user_email: str | None = "reader3@zt.local"
+    resource: str | None = "/documents/{document_id}"
+    anomaly_type: str = "resource_access"
+    severity: str = "high"
+    risk_score: float = 0.8
+    trace_id: UUID | None = field(default_factory=uuid4)
+
+
+@dataclass(slots=True)
 class FakeMonitoringRepository:
     """In-memory stand-in that mirrors the real repository's filtering and
     pagination behavior closely enough to meaningfully test the router --
@@ -46,6 +66,7 @@ class FakeMonitoringRepository:
     SQL these mirror."""
 
     records: list[_Record] = field(default_factory=list)
+    anomalies: list[_AnomalyRecord] = field(default_factory=list)
     model_registry: dict[str, ModelRegistryRow] = field(default_factory=dict)
     ping_calls: int = 0
     ping_raises: bool = False
@@ -96,6 +117,22 @@ class FakeMonitoringRepository:
         return [
             AlertRow(type="step_up", created_at=r.created_at, user_email=r.user_email, resource=r.resource, risk_score=r.risk_score, trace_id=r.trace_id)
             for r in rows
+        ]
+
+    async def get_anomalies(self, *, limit, window_minutes):
+        since = datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
+        rows = sorted(
+            (a for a in self.anomalies if a.created_at >= since),
+            key=lambda a: a.created_at,
+            reverse=True,
+        )
+        rows = rows[:limit]
+        return [
+            AnomalyRow(
+                created_at=a.created_at, user_email=a.user_email, resource=a.resource,
+                anomaly_type=a.anomaly_type, severity=a.severity, risk_score=a.risk_score, trace_id=a.trace_id,
+            )
+            for a in rows
         ]
 
     async def get_model_registry_row(self, version):
@@ -163,6 +200,18 @@ def _record(
         risk_score=risk_score,
         model_version="v1",
         ip_address=ip,
+    )
+
+
+def _anomaly(
+    *, minutes_ago=0, anomaly_type="resource_access", severity="high", risk_score=0.8, user_email="reader3@zt.local"
+) -> _AnomalyRecord:
+    return _AnomalyRecord(
+        created_at=datetime.now(timezone.utc) - timedelta(minutes=minutes_ago),
+        user_email=user_email,
+        anomaly_type=anomaly_type,
+        severity=severity,
+        risk_score=risk_score,
     )
 
 
@@ -336,6 +385,67 @@ def test_alerts_default_window_is_60_minutes():
 
         trace_ids = {a["trace_id"] for a in response["alerts"]}
         assert trace_ids == {str(recent_step_up.trace_id)}
+
+    asyncio.run(_run())
+
+
+def test_anomalies_returns_severity_and_type_most_recent_first():
+    async def _run():
+        old = _anomaly(minutes_ago=20, anomaly_type="network", severity="medium")
+        new = _anomaly(minutes_ago=2, anomaly_type="authentication", severity="critical")
+        repo = FakeMonitoringRepository(anomalies=[old, new])
+
+        response = await get_anomalies(_request(repository=repo), limit=50)
+
+        anomalies = response["anomalies"]
+        assert len(anomalies) == 2
+        assert anomalies[0]["trace_id"] == str(new.trace_id)
+        assert anomalies[0]["anomaly_type"] == "authentication"
+        assert anomalies[0]["severity"] == "critical"
+        assert anomalies[1]["trace_id"] == str(old.trace_id)
+
+    asyncio.run(_run())
+
+
+def test_anomalies_excludes_rows_outside_the_window():
+    async def _run():
+        stale = _anomaly(minutes_ago=90)  # older than 60-min window
+        repo = FakeMonitoringRepository(anomalies=[stale])
+
+        response = await get_anomalies(_request(repository=repo), limit=50, window_minutes=60)
+
+        assert response["anomalies"] == []
+
+    asyncio.run(_run())
+
+
+def test_anomalies_default_window_is_60_minutes():
+    async def _run():
+        stale = _anomaly(minutes_ago=90)
+        recent = _anomaly(minutes_ago=30)
+        repo = FakeMonitoringRepository(anomalies=[stale, recent])
+
+        response = await get_anomalies(_request(repository=repo))  # window_minutes omitted
+
+        trace_ids = {a["trace_id"] for a in response["anomalies"]}
+        assert trace_ids == {str(recent.trace_id)}
+
+    asyncio.run(_run())
+
+
+def test_anomalies_does_not_pull_from_the_step_up_alerts_feed():
+    async def _run():
+        # Anomalies and step_ups are now two independent feeds/limits -- a
+        # burst of step_ups must not crowd anomalies out, which was the
+        # whole point of splitting this from /monitoring/alerts.
+        step_up = _record(decision="step_up", minutes_ago=1)
+        anomaly = _anomaly(minutes_ago=1)
+        repo = FakeMonitoringRepository(records=[step_up], anomalies=[anomaly])
+
+        response = await get_anomalies(_request(repository=repo), limit=50)
+
+        assert len(response["anomalies"]) == 1
+        assert response["anomalies"][0]["trace_id"] == str(anomaly.trace_id)
 
     asyncio.run(_run())
 
