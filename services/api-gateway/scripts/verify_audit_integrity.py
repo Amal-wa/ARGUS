@@ -112,13 +112,23 @@ class VerificationResult:
     total_rows: int
     broken_row_id: int | None
     reason: str | None
+    # How many rows PASSED before broken_row_id (0 if the very first row
+    # fails) -- distinct from total_rows, which is the whole table's size
+    # regardless of where a break happens. Added after main()'s error
+    # message previously read "(60836 rows checked before the break)" while
+    # actually reporting total_rows -- i.e. the WHOLE table, not how many
+    # were genuinely verified before verify_chain returned early. Equals
+    # total_rows exactly when the chain is fully intact (both branches of
+    # verify_chain below set it explicitly, on purpose -- no default here
+    # that could silently paper over a call site that forgets it).
+    verified_rows: int
 
 
 async def verify_chain(repository: AuditLogRepository) -> VerificationResult:
     rows = await repository.fetch_all_rows_in_order()
 
     expected_prev_hash = GENESIS_HASH
-    for row in rows:
+    for verified_rows, row in enumerate(rows):
         if row.prev_hash != expected_prev_hash:
             return VerificationResult(
                 total_rows=len(rows),
@@ -127,6 +137,7 @@ async def verify_chain(repository: AuditLogRepository) -> VerificationResult:
                     f"prev_hash does not match the previous row's row_hash "
                     f"(expected {expected_prev_hash!r}, got {row.prev_hash!r}) -- chain re-pointed or a row is missing"
                 ),
+                verified_rows=verified_rows,
             )
 
         recomputed = compute_row_hash(
@@ -152,11 +163,12 @@ async def verify_chain(repository: AuditLogRepository) -> VerificationResult:
                 total_rows=len(rows),
                 broken_row_id=row.id,
                 reason="row_hash does not match the recomputed hash -- this row's own content was altered",
+                verified_rows=verified_rows,
             )
 
         expected_prev_hash = row.row_hash
 
-    return VerificationResult(total_rows=len(rows), broken_row_id=None, reason=None)
+    return VerificationResult(total_rows=len(rows), broken_row_id=None, reason=None, verified_rows=len(rows))
 
 
 async def main() -> None:
@@ -172,7 +184,7 @@ async def main() -> None:
     if result.broken_row_id is not None:
         raise SystemExit(
             f"AUDIT TRAIL INTEGRITY BROKEN at opa_decision_log.id={result.broken_row_id}: "
-            f"{result.reason} ({result.total_rows} rows checked before the break)"
+            f"{result.reason} ({result.verified_rows} of {result.total_rows} rows verified before the break)"
         )
 
     print(f"OK: {result.total_rows} rows verified, chain intact from genesis to tail")

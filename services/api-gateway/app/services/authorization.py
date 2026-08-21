@@ -74,6 +74,7 @@ class AuthorizationService:
 
         risk_ctx = RiskScoreResult()
         threshold: float | None = None
+        model_ever_active = False
         if not is_monitoring_route:
             active_model_version = await self.redis_client.get("model:active_version")
             if active_model_version is not None:
@@ -123,6 +124,15 @@ class AuthorizationService:
                                 threshold,
                                 extra={"model_version": active_model_version, "fallback_threshold": threshold},
                             )
+            else:
+                # model:active_version is unset -- either no model has ever
+                # been trained (true bootstrap) or one WAS active and is now
+                # missing (failed promotion, Redis key loss, incident).
+                # model:ever_active is the one-way flag set once by
+                # scripts/promote_model.py and never cleared; only read here,
+                # not on the model-active path above, so this costs nothing
+                # on the normal hot path.
+                model_ever_active = await self.redis_client.get("model:ever_active") is not None
         # is_monitoring_route: risk_ctx stays RiskScoreResult() (score=None)
         # and threshold stays None -- OPA's bootstrap_mode (score == null)
         # short-circuits to "allow" before the threshold comparison is ever
@@ -156,6 +166,7 @@ class AuthorizationService:
                 "score": risk_ctx.risk_score,
                 "model_version": risk_ctx.model_version,
                 "threshold": risk_ctx.threshold,
+                "model_ever_active": model_ever_active,
             },
             mfa={"ticket_verified": ticket_verified, "grace_verified": grace_verified},
             is_post_step_up=context.is_post_step_up,

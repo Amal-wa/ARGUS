@@ -12,6 +12,7 @@ from scripts.promote_model import (
     ACTIVE_THRESHOLD_KEY,
     ACTIVE_VERSION_KEY,
     CANDIDATE_VERSION_KEY,
+    EVER_ACTIVE_KEY,
     PromotionError,
     promote_model,
 )
@@ -237,6 +238,61 @@ def test_promote_dimension_mismatch_aborts_and_sets_nothing():
 
         assert await redis.get(ACTIVE_VERSION_KEY) == "v0"
         assert await redis.get(ACTIVE_THRESHOLD_KEY) == "0.60"
+
+    asyncio.run(_run())
+
+
+def test_promote_sets_ever_active_flag():
+    async def _run():
+        redis = InMemoryRedis()
+        breakpoints = _linear_breakpoints(0.590, 0.666)
+        repository = FakeModelRegistryRepository(
+            score_distributions={
+                "v1": {"samples_scored": 500, "p98": 0.651, "percentile_breakpoints": breakpoints},
+            }
+        )
+
+        assert await redis.get(EVER_ACTIVE_KEY) is None
+
+        await promote_model(repository, redis, "v1")
+
+        assert await redis.get(EVER_ACTIVE_KEY) == "1"
+
+    asyncio.run(_run())
+
+
+def test_promote_ever_active_flag_survives_active_version_loss():
+    """The exact incident this flag exists for: model:active_version lost
+    independently of promotion (accidental deletion, incident) -- see
+    policies/risk/adaptive_access.rego's model_unavailable rule. The flag
+    must NOT be cleared alongside it."""
+
+    async def _run():
+        redis = InMemoryRedis()
+        breakpoints = _linear_breakpoints(0.590, 0.666)
+        repository = FakeModelRegistryRepository(
+            score_distributions={
+                "v1": {"samples_scored": 500, "p98": 0.651, "percentile_breakpoints": breakpoints},
+            }
+        )
+        await promote_model(repository, redis, "v1")
+
+        await redis.delete(ACTIVE_VERSION_KEY)
+
+        assert await redis.get(EVER_ACTIVE_KEY) == "1"
+
+    asyncio.run(_run())
+
+
+def test_promote_aborted_promotion_does_not_set_ever_active_flag():
+    async def _run():
+        redis = InMemoryRedis()
+        repository = FakeModelRegistryRepository(score_distributions={"v1": None})
+
+        with pytest.raises(PromotionError):
+            await promote_model(repository, redis, "v1")
+
+        assert await redis.get(EVER_ACTIVE_KEY) is None
 
     asyncio.run(_run())
 

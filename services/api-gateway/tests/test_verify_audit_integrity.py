@@ -56,6 +56,7 @@ def test_verify_chain_empty_table_is_ok():
 
     assert result.broken_row_id is None
     assert result.total_rows == 0
+    assert result.verified_rows == 0
 
 
 def test_verify_chain_valid_chain_is_ok():
@@ -65,6 +66,7 @@ def test_verify_chain_valid_chain_is_ok():
 
     assert result.broken_row_id is None
     assert result.total_rows == 5
+    assert result.verified_rows == 5
 
 
 def test_verify_chain_detects_an_altered_field_without_recomputed_hash():
@@ -77,6 +79,13 @@ def test_verify_chain_detects_an_altered_field_without_recomputed_hash():
 
     assert result.broken_row_id == 3
     assert "row_hash" in result.reason
+    # Regression: main()'s error message used to report total_rows (the
+    # WHOLE table) as "rows checked before the break", which overstated how
+    # much of the chain had actually been verified by the time it broke --
+    # rows 1 and 2 passed, row 3 is where it stopped, rows 4-5 were never
+    # reached. total_rows still reports the whole table (5) alongside this.
+    assert result.verified_rows == 2
+    assert result.total_rows == 5
 
 
 def test_verify_chain_detects_a_forged_prev_hash_link():
@@ -89,6 +98,7 @@ def test_verify_chain_detects_a_forged_prev_hash_link():
 
     assert result.broken_row_id == 4
     assert "prev_hash" in result.reason
+    assert result.verified_rows == 3
 
 
 def test_verify_chain_detects_first_row_not_chained_from_genesis():
@@ -99,6 +109,7 @@ def test_verify_chain_detects_first_row_not_chained_from_genesis():
 
     assert result.broken_row_id == 1
     assert "prev_hash" in result.reason
+    assert result.verified_rows == 0
 
 
 def test_verify_chain_stops_at_the_first_break_not_a_later_one():
@@ -109,3 +120,4 @@ def test_verify_chain_stops_at_the_first_break_not_a_later_one():
     result = asyncio.run(verify_chain(FakeAuditLogRepository(rows=rows)))
 
     assert result.broken_row_id == 2
+    assert result.verified_rows == 1

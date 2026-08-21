@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import struct
 from datetime import datetime
 from uuid import UUID
 
@@ -12,6 +13,27 @@ from uuid import UUID
 # value rather than importing this module -- a migration must stay frozen
 # even if this file's algorithm ever changes later; see that file's comment.
 GENESIS_HASH = hashlib.sha256(b"zt-project-opa-decision-log-genesis").hexdigest()
+
+
+def _single_precision(value: float) -> float:
+    """Round-trips a Python double through IEEE-754 single precision --
+    i.e. exactly what happens the moment a value is stored in and read back
+    from a Postgres `real` column, which risk_score always is (opa_decision_log,
+    event_anomaly, ml_training_samples, canary_validation_log all declare it
+    `sa.REAL()`, see alembic/versions/0001_initial_mirror.py). Without this,
+    compute_row_hash formats the caller's full-precision double, but every
+    reader (verify_audit_integrity.py, or literally any other query) only
+    ever sees the column's already-truncated value -- the two `.10f` strings
+    differ, so the hash "breaks" on every row with a non-null risk_score,
+    deterministically, forever, starting from the first row write_decision
+    ever wrote after the hash chain shipped. Found live: opa_decision_log.id
+    53197 (the first post-migration row with a score) failed
+    verify_audit_integrity.py while its neighbours with risk_score=NULL
+    verified fine, and prev_hash/row_hash linkage across the "broken" rows
+    was otherwise perfectly intact -- the signature of a precision bug, not
+    tampering. See 0016_hash_chain_risk_score_precision.py for the
+    migration that re-derives the chain with this fix applied."""
+    return struct.unpack("<f", struct.pack("<f", value))[0]
 
 
 def compute_row_hash(
@@ -45,12 +67,14 @@ def compute_row_hash(
     test, see repositories.py's write_decision) can exercise directly.
 
     risk_score is formatted with fixed precision (f"{x:.10f}"), not
-    repr()/str() -- this guarantees the exact same string is produced both
-    when write_decision computes a row's hash at insert time and when
-    verify_audit_integrity.py recomputes it later after reading the column
-    back (possibly through a different driver/Decimal path); repr()'s
-    "shortest round-trip" float formatting is not guaranteed identical
-    between two independent read paths of the same stored value.
+    repr()/str() -- repr()'s "shortest round-trip" float formatting is not
+    guaranteed identical between two independent read paths of the same
+    stored value. That alone isn't sufficient, though: risk_score is always
+    a Postgres `real` (single-precision) column, so it must ALSO be rounded
+    to single precision before formatting -- see _single_precision's
+    docstring for the incident this fixes (a full-precision double hashed
+    at write time will never again match what any later reader sees once
+    the column has truncated it).
     """
     canonical = "|".join(
         [
@@ -62,7 +86,7 @@ def compute_row_hash(
             resource,
             action,
             ip_address,
-            "" if risk_score is None else f"{risk_score:.10f}",
+            "" if risk_score is None else f"{_single_precision(risk_score):.10f}",
             model_version or "",
             is_anomaly,
             decision,

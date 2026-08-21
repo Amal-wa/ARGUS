@@ -61,6 +61,16 @@ ACTIVE_THRESHOLD_KEY = "model:active_threshold"
 # must always change together" contract as active_version/threshold.
 ACTIVE_SCORE_BREAKPOINTS_KEY = "model:active_score_breakpoints"
 CANDIDATE_VERSION_KEY = "model:candidate_version"
+# Deliberately NOT part of the "these keys must always change together"
+# contract above -- this one is write-once/monotonic, not a snapshot of
+# current state. Set on every successful promotion and never cleared, so it
+# survives model:active_version being lost independently (failed promotion,
+# accidental deletion, incident): it lets the Gateway/OPA tell "no model has
+# ever been trained" (bootstrap) apart from "a model WAS active and is
+# missing now" (a regression that must force step_up, not silently
+# bootstrap-allow) -- see policies/risk/adaptive_access.rego's
+# model_unavailable rule and AuthorizationService.authorize.
+EVER_ACTIVE_KEY = "model:ever_active"
 
 
 def _percentile_rank(raw_value: float, breakpoints: list[float]) -> float:
@@ -176,6 +186,7 @@ async def promote_model(
     await redis_client.set(ACTIVE_VERSION_KEY, version)
     await redis_client.set(ACTIVE_THRESHOLD_KEY, str(threshold))
     await redis_client.set(ACTIVE_SCORE_BREAKPOINTS_KEY, json.dumps(score_breakpoints))
+    await redis_client.set(EVER_ACTIVE_KEY, "1")
 
     # See the module docstring: candidate_version means "pending", active_version
     # means "live" -- once THIS version is live, it can't still be pending. Only

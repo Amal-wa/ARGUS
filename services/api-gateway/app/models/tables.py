@@ -247,6 +247,19 @@ ml_model_registry_table = Table(
     Column("hyperparameters", JSONB, nullable=False),
     Column("score_distribution", JSONB, nullable=True),
     Column("feature_dims", Integer, nullable=False),
+    # Written by ml-trainer itself in the SAME INSERT as every other column
+    # here (unlike score_distribution, which canary-validator UPDATEs in
+    # later, against a DIFFERENT model's live traffic) -- an automatic,
+    # objective signal of whether THIS training run actually separates
+    # normal from anomalous behavior, computed on a held-out split of the
+    # same ml_training_samples this version was trained on, using synthetic
+    # anomalies grounded in behavioral-detector's own empirically-calibrated
+    # thresholds (see ml-trainer's trainer.py::evaluate_holdout_quality).
+    # Nullable: too few held-out samples to compute a meaningful AUC is a
+    # legitimate outcome (small training runs), not an error -- same
+    # "absence is a valid state, not a data gap" discipline as
+    # score_distribution.
+    Column("training_quality", JSONB, nullable=True),
     CheckConstraint("training_samples > 0", name="ck_ml_model_registry_training_samples"),
 )
 

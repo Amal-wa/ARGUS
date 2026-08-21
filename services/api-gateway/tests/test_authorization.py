@@ -201,6 +201,66 @@ def test_authorize_no_active_model_leaves_threshold_null():
         assert service.opa_client.payloads[0].risk_ctx.score is None
         assert service.opa_client.payloads[0].risk_ctx.threshold is None
         assert service.scoring_client.calls == 0
+        # True first-time bootstrap (model:ever_active also unset) -- must be
+        # reported as such, not conflated with a model that was once active
+        # and is now missing. See the two tests below for that regression.
+        assert service.opa_client.payloads[0].risk_ctx.model_ever_active is False
+
+    asyncio.run(_run())
+
+
+def test_authorize_no_active_model_reports_model_ever_active_when_flag_set():
+    """Regression test for the bootstrap/model-loss conflation finding: a
+    model that was promoted at some point in the past, then lost
+    (model:active_version deleted/expired independently -- failed promotion,
+    incident), must be reported to OPA as model_ever_active=True, not
+    indistinguishable from a fresh deployment that never trained a model at
+    all. See scripts/promote_model.py's model:ever_active flag and
+    policies/risk/adaptive_access.rego's model_unavailable rule."""
+
+    async def _run():
+        redis = InMemoryRedis()
+        await redis.set("model:ever_active", "1")
+        app, service = _service(
+            OpaDecisionResult(decision=OpaDecision.STEP_UP, policy_name="step_up_required"),
+            RiskScoreResult(risk_score=None, model_version=None),
+            redis=redis,
+        )
+        context = RequestContext(method="GET", path="/documents/123", claims=_claims())
+        request = _request(app)
+
+        await service.authorize(request=request, context=context)
+
+        assert service.opa_client.payloads[0].risk_ctx.score is None
+        assert service.opa_client.payloads[0].risk_ctx.model_ever_active is True
+        assert service.scoring_client.calls == 0
+
+    asyncio.run(_run())
+
+
+def test_authorize_active_model_reports_model_ever_active_false_even_if_flag_set():
+    """model:ever_active is only consulted when model:active_version is
+    unset -- pins down that a currently-active model (the realistic case,
+    since model:ever_active would indeed be "1" by then) doesn't leak into
+    risk_ctx.model_ever_active, matching adaptive_access.rego's
+    model_unavailable rule only ever mattering while score is null."""
+
+    async def _run():
+        redis = InMemoryRedis()
+        await redis.set("model:active_version", "v1")
+        await redis.set("model:active_threshold", "0.651")
+        await redis.set("model:ever_active", "1")
+        app, service = _service(
+            OpaDecisionResult(decision=OpaDecision.ALLOW, policy_name="risk_allow"),
+            RiskScoreResult(risk_score=0.6, model_version="v1"),
+            redis=redis,
+        )
+        context = RequestContext(method="GET", path="/documents/123", claims=_claims())
+        request = _request(app)
+
+        await service.authorize(request=request, context=context)
+
+        assert service.opa_client.payloads[0].risk_ctx.model_ever_active is False
 
     asyncio.run(_run())
 

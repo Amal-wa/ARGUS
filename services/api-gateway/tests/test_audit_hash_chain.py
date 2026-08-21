@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import struct
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -87,3 +88,28 @@ def test_compute_row_hash_handles_none_risk_score_and_reason():
     assert isinstance(result, str)
     assert len(result) == 64  # sha256 hex digest length
     assert result != compute_row_hash(**{**kwargs, "risk_score": 0.0})
+
+
+def test_compute_row_hash_matches_after_a_real_column_round_trip():
+    # Regression test for the bug found live at opa_decision_log.id=53197:
+    # risk_score is always a Postgres `real` (single precision) column (see
+    # alembic/versions/0001_initial_mirror.py), but write_decision used to
+    # hash the full-precision Python double BEFORE the INSERT truncated it.
+    # Every later reader only ever sees the truncated value, so the hash
+    # never matched again past the first row with a non-null risk_score --
+    # deterministically, on every such row, forever. A double with more
+    # significant digits than float32 can hold (e.g. straight off Isolation
+    # Forest's scoring) must hash identically whether it's the pre-INSERT
+    # value or the same value already round-tripped through single
+    # precision, since those are exactly the two values a hash's producer
+    # and a hash's later verifier respectively hold.
+    # More significant digits than float32's ~7 can hold -- e.g. straight off
+    # Isolation Forest's sigmoid, before ever touching the `real` column.
+    full_precision = 0.1
+    already_truncated = struct.unpack("<f", struct.pack("<f", full_precision))[0]
+    assert full_precision != already_truncated  # sanity: the two doubles really do differ
+
+    kwargs = _base_kwargs()
+    assert compute_row_hash(**{**kwargs, "risk_score": full_precision}) == compute_row_hash(
+        **{**kwargs, "risk_score": already_truncated}
+    )
