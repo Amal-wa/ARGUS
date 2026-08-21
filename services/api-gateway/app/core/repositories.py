@@ -9,6 +9,7 @@ from sqlalchemy import case, func, insert, select, text, update
 
 from app.core.audit_hash_chain import GENESIS_HASH, compute_row_hash
 from app.models.tables import (
+    canary_validation_log_table,
     documents_table,
     event_anomaly_table,
     events_table,
@@ -744,6 +745,18 @@ class AuditPage:
     total: int
 
 
+# "updated": the row existed and was still "pending" -- the write happened.
+# "not_found": no row with this id exists at all.
+# "already_reviewed": the row exists but review_status was already
+# "confirmed"/"rejected" -- see update_canary_review_status's docstring for
+# why this is a distinct, reported outcome rather than a silent overwrite.
+@dataclass(slots=True)
+class CanaryReviewOutcome:
+    status: str
+    reviewed_at: datetime | None = None
+    existing_status: str | None = None
+
+
 def _window_since(window_minutes: int):
     # func.make_interval mirrors the lockout-window pattern already used in
     # UserMfaRepository/UserRepository -- avoids a raw string-interpolated
@@ -1138,3 +1151,55 @@ class MonitoringRepository:
             ],
             total=total,
         )
+
+    async def update_canary_review_status(
+        self, canary_id: int, *, review_status: str, reviewed_by: str
+    ) -> CanaryReviewOutcome:
+        """L1 of the graduated canary-review workflow: makes
+        canary_validation_log.review_status (previously dead code -- every row
+        is inserted as 'pending' by canary-validator's repository.py and
+        nothing ever changed it afterward, confirmed by an exhaustive grep
+        across routers/dashboard/scripts) actually settable by an operator.
+
+        The UPDATE itself is conditioned on `review_status == 'pending'` so a
+        row that was already confirmed/rejected is NEVER silently overwritten
+        -- a review, once made, is the audit record of who decided and when;
+        overwriting it on a second call would silently lose the first
+        reviewer's decision with no history table to recover it from (same
+        "terminal, not silently reversible" posture already used for
+        adaptive_access.rego's phase-2 enumeration deny). A caller who
+        genuinely needs to correct a wrong review does so through a separate,
+        deliberate action -- not implemented here (out of L1's scope).
+
+        Returns which of the three outcomes happened rather than raising,
+        so the router decides the HTTP status -- this method is a pure DB
+        operation, not an HTTP concern.
+        """
+        async with self._session_factory() as session:
+            result = await session.execute(
+                update(canary_validation_log_table)
+                .where(
+                    canary_validation_log_table.c.id == canary_id,
+                    canary_validation_log_table.c.review_status == "pending",
+                )
+                .values(review_status=review_status, reviewed_by=reviewed_by, reviewed_at=func.now())
+                .returning(canary_validation_log_table.c.reviewed_at)
+            )
+            row = result.one_or_none()
+            if row is not None:
+                await session.commit()
+                return CanaryReviewOutcome(status="updated", reviewed_at=row.reviewed_at)
+
+            # The UPDATE matched nothing -- either the id doesn't exist, or it
+            # does but wasn't 'pending'. One more read (no write happened, so
+            # nothing to commit) tells the two apart.
+            existing = (
+                await session.execute(
+                    select(canary_validation_log_table.c.review_status).where(
+                        canary_validation_log_table.c.id == canary_id
+                    )
+                )
+            ).one_or_none()
+            if existing is None:
+                return CanaryReviewOutcome(status="not_found")
+            return CanaryReviewOutcome(status="already_reviewed", existing_status=existing.review_status)

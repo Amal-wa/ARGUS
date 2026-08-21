@@ -3,10 +3,23 @@ from __future__ import annotations
 import csv
 import io
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, Query, Request, Response
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 router = APIRouter()
+
+
+class CanaryReviewRequest(BaseModel):
+    # Only the two HUMAN-DECIDED target states are writable here --
+    # "pending"/"no_review_required" are states canary-validator itself
+    # assigns at insertion (today always "pending", see repository.py), not
+    # actions an operator takes through this endpoint. A Literal (not a bare
+    # str re-validated by hand) makes any other value, including those two,
+    # a 422 from Pydantic before this code ever runs.
+    review_status: Literal["confirmed", "rejected"]
 
 # Bounds, not defaults tunable without limit -- see repositories.py's
 # comment on why every monitoring query must be bounded.
@@ -354,3 +367,42 @@ async def get_audit(
         )
 
     return {"rows": rows, "page": page, "page_size": page_size, "total": page_result.total}
+
+
+@router.patch("/monitoring/canary/{canary_id}/review")
+async def review_canary(canary_id: int, body: CanaryReviewRequest, request: Request):
+    # Admin-only via rbac.rego's monitoring_route prefix match (/monitoring/*)
+    # -- no role check here, same as every other route in this file.
+    services = request.app.state.gateway_services
+    context = request.state.gateway_context
+
+    # reviewed_by is derived from the caller's own verified identity, never
+    # a client-supplied field -- the JWT carries only `sub` (user_id) and
+    # `role`, no email claim, so it's resolved the same way every other
+    # audit-facing view in this repository already does (list_decisions,
+    # get_risk_timeline, get_alerts all join users_table for a human-readable
+    # email rather than exposing a raw UUID).
+    reviewer = await services.user_repository.get_by_id(context.claims.subject)
+    reviewed_by = reviewer.email if reviewer is not None else str(context.claims.subject)
+
+    outcome = await services.monitoring_repository.update_canary_review_status(
+        canary_id, review_status=body.review_status, reviewed_by=reviewed_by
+    )
+
+    if outcome.status == "not_found":
+        return JSONResponse({"detail": "canary comparison not found"}, status_code=404)
+    if outcome.status == "already_reviewed":
+        return JSONResponse(
+            {
+                "detail": "canary comparison already reviewed",
+                "review_status": outcome.existing_status,
+            },
+            status_code=409,
+        )
+
+    return {
+        "id": canary_id,
+        "review_status": body.review_status,
+        "reviewed_by": reviewed_by,
+        "reviewed_at": outcome.reviewed_at.isoformat(),
+    }

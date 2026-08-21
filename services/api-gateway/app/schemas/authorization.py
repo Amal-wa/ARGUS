@@ -27,6 +27,15 @@ class RiskContext(BaseModel):
     score: float | None = None
     model_version: str | None = None
     threshold: float | None = None
+    # True once ANY model has ever been promoted (Redis model:ever_active,
+    # set once by scripts/promote_model.py and never cleared). Lets
+    # adaptive_access.rego's model_unavailable rule tell "no model has ever
+    # been trained" (bootstrap_mode, permissive) apart from "a model WAS
+    # active and risk_ctx.score is null now anyway" (model:active_version
+    # lost -- failed promotion, Redis key loss, incident -- must force
+    # step_up instead of silently falling back to bootstrap-allow). See
+    # AuthorizationService.authorize.
+    model_ever_active: bool = False
 
 
 class MfaContext(BaseModel):
