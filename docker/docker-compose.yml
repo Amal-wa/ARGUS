@@ -26,7 +26,25 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    # --requirepass: proven live during this project's own security audit that
+    # ANY container on internal_net could otherwise read/write any key with zero
+    # credentials -- including forging mfa:verified:{user_id}:{jti} directly,
+    # bypassing the entire step-up mechanism without ever touching the Gateway.
+    # A shared password (not per-service ACLs -- see SECURITY.md for that
+    # trade-off) closes the larger part of that: a container that never
+    # compromised any of our services can no longer touch Redis at all. It does
+    # NOT stop an already-compromised service (isolation-forest,
+    # canary-validator, ml-trainer, behavioral-detector), which knows the same
+    # shared password every legitimate service uses -- documented, not hidden.
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru --requirepass redis-dev-password
+    environment:
+      # Picked up automatically by the healthcheck's plain `redis-cli ping`
+      # below (and by any `docker exec redis redis-cli ...` during manual
+      # debugging) -- avoids `-a redis-dev-password` on the command line
+      # itself, which would both print a "password on command line" warning to
+      # stderr and show the password in `docker inspect`'s command list, not
+      # just its environment.
+      REDISCLI_AUTH: redis-dev-password
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -125,7 +143,7 @@ services:
       - ../services/api-gateway/.env
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:admin@postgres:5432/zt_db
-      - REDIS_URL=redis://redis:6379
+      - REDIS_URL=redis://:redis-dev-password@redis:6379
       - VAULT_ADDR=http://vault:8200
       - VAULT_TOKEN=dev-root-token
       - OPA_URL=https://opa:8181
@@ -231,7 +249,7 @@ services:
       - "8001"
     environment:
       DATABASE_URL: postgresql://postgres:admin@postgres:5432/zt_db
-      REDIS_URL: redis://redis:6379/0
+      REDIS_URL: redis://:redis-dev-password@redis:6379/0
       # REDIS_URL is read-only here: the Gateway still builds the complete
       # feature_vector itself (Redis-derived counters included) before calling
       # /score, so Isolation Forest never touches feature keys. The only thing
@@ -318,7 +336,7 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:admin@postgres:5432/zt_db
       CANARY_BATCH_SIZE: "15000"
-      REDIS_URL: redis://redis:6379/0
+      REDIS_URL: redis://:redis-dev-password@redis:6379/0
     depends_on:
       postgres:
         condition: service_healthy
@@ -344,8 +362,33 @@ services:
     profiles: ["jobs"]
     environment:
       DATABASE_URL: postgresql://postgres:admin@postgres:5432/zt_db
-      REDIS_URL: redis://redis:6379/0
+      REDIS_URL: redis://:redis-dev-password@redis:6379/0
       TRAINING_WINDOW_DAYS: 30
+      # reader1@zt.local is this project's own live-verification/demo
+      # account (see live_verify_*.py / DEMO_GUIDE.md), reused across dozens
+      # of sessions -- not one legitimate user's traffic. Confirmed live: it
+      # alone produced resource_access (feature_vector[7]) values up to 386;
+      # every other account tops out at 25, matching the empirical threshold
+      # CLAUDE.md's Behavioral detector section documents. Excluded from
+      # training so the model's notion of "normal" isn't calibrated against
+      # this project's own test harness. See TrainerSettings.training_excluded_emails.
+      # reader14@zt.local: privilege-escalation attack actor (scenario D,
+      # seed 42) -- its rbac_deny attempts never write samples (ALLOW-only
+      # gating), but its few concurrent legitimate reads carry a contaminated
+      # feature_vector[12] (deny_count 29-34, shared per-user Redis counter
+      # bleeding the attack's footprint into neighbouring legitimate requests).
+      # Excluded by identity since the contamination is on a dimension the
+      # behavioral filter (TRAINING_MAX_RESOURCE_ACCESS, feature_vector[7])
+      # doesn't inspect.
+      TRAINING_EXCLUDED_EMAILS: reader1@zt.local,reader14@zt.local
+      # Excludes samples by BEHAVIOR (feature_vector[7], distinct raw
+      # resources over 5 min) rather than identity -- complements
+      # TRAINING_EXCLUDED_EMAILS above, doesn't replace it. Live-verified:
+      # real normal traffic (reader1/reader8 set aside) tops out at 11;
+      # reader8@zt.local's scenario-A enumeration burst produced 178 samples
+      # at 31-207 in a single 2m20s window. 30 leaves ~2.7x headroom above
+      # the observed normal ceiling. See TrainerSettings.training_max_resource_access.
+      TRAINING_MAX_RESOURCE_ACCESS: 30
     depends_on:
       postgres:
         condition: service_healthy
@@ -369,7 +412,7 @@ services:
     container_name: behavioral-detector
     environment:
       DATABASE_URL: postgresql://postgres:admin@postgres:5432/zt_db
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:redis-dev-password@redis:6379
       SCAN_INTERVAL_SECONDS: 60
     depends_on:
       postgres:

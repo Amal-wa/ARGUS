@@ -34,12 +34,13 @@ def main() -> int:
         )
     else:
         logger.info(
-            "ml-trainer: trained %s on %d samples, window %s -> %s, artifact %s",
+            "ml-trainer: trained %s on %d samples, window %s -> %s, artifact %s, quality=%s",
             report.version,
             report.sample_count,
             report.window_start,
             report.window_end,
             report.artifact_path,
+            report.quality.to_dict() if report.quality is not None else None,
         )
     return 0
 
