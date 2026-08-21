@@ -6,6 +6,7 @@ import logging
 import random
 
 import httpx
+import numpy as np
 
 from .attacks import (
     build_scenario_rngs,
@@ -168,6 +169,24 @@ def _print_summary(clients: dict[str, PersonaClient]) -> None:
     print("=" * 70)
 
 
+def select_attack_actor(personas: list[Persona], scenario_rng: np.random.Generator) -> Persona:
+    """Picks the reader persona that scenarios A/C/D act as/through, drawn
+    from THIS scenario's own seeded stream (build_scenario_rngs) -- same seed
+    -> same actor, every time; a different scenario's stream is untouched
+    (independent child of the same SeedSequence), so this draw never perturbs
+    another scenario's sequence. Replaces the previous `next(p for p in
+    personas if p.role == "reader")`, which always returned the FIRST reader
+    in build_personas' insertion order (reader1@zt.local) on every single
+    run -- concentrating all of A/C/D's attack signatures onto one fixed
+    account instead of spreading them across the reader population the way a
+    real, varied attacker population would."""
+    readers = [p for p in personas if p.role == "reader"]
+    if not readers:
+        raise ValueError("no persona with role == 'reader' to act as the attack actor")
+    index = int(scenario_rng.integers(0, len(readers)))
+    return readers[index]
+
+
 async def async_main(args: argparse.Namespace) -> None:
     if args.mode == "attack" and args.scenario is None:
         raise SystemExit("--scenario is required when --mode attack")
@@ -222,8 +241,12 @@ async def async_main(args: argparse.Namespace) -> None:
 
     attack_task: asyncio.Task | None = None
     if args.mode == "attack":
-        actor_persona = next(p for p in personas if p.role == "reader")
-        actor_client = clients[actor_persona.email]
+        # Drawn per-scenario (scenario_rngs[args.scenario]), not once globally --
+        # see select_attack_actor's docstring. B is untouched: it already
+        # targets every persona's email, not a single actor.
+        if args.scenario in ("A", "C", "D"):
+            actor_persona = select_attack_actor(personas, scenario_rngs[args.scenario])
+            actor_client = clients[actor_persona.email]
         await asyncio.sleep(3)  # let the actor's normal task log in first
 
         attack_duration = args.duration or 300.0

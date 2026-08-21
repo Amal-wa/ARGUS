@@ -36,6 +36,17 @@ PROFILES = {
     "drifted": {"write_ratio": WRITE_RATIO_RANGE_DRIFTED, "document_ratio": DOCUMENT_RATIO_RANGE_DRIFTED},
 }
 
+# Applied to mean_interval_seconds below -- the only place role affects request
+# VOLUME (role already affects the read/write MIX via write_ratio). Editors are
+# legitimately more active than readers in real usage (they write, not just
+# read); this factor is what actually encodes that, not the raw lognormal draw,
+# which is otherwise identical across roles. Modest on purpose: this is a
+# population-level tendency across 8 editors vs 15 readers, not a per-persona
+# guarantee -- with this few editors, per-seed sample noise can still occasionally
+# put the editor mean below the reader mean for a given seed (confirmed by
+# simulation), same way real small teams don't perfectly track a population average.
+ROLE_ACTIVITY_FACTOR = {"reader": 1.0, "editor": 0.75, "admin": 1.0}
+
 
 @dataclass(slots=True)
 class Persona:
@@ -90,14 +101,32 @@ def build_personas(seed: int, password: str = SEED_USER_PASSWORD_DEFAULT, profil
 
 
 def _make_persona(index: int, email: str, role: str, password: str, rng: random.Random, ranges: dict[str, tuple[float, float]]) -> Persona:
-    # Wide lognormal spread: median ~e^5.0 =~ 148s, but the tails reach from
-    # ~20s (a "greedy" persona) to well over 10 minutes (an occasional one).
-    # Unaffected by profile -- see PROFILES comment above.
-    mean_interval = rng.lognormvariate(mu=5.0, sigma=1.2)
-    mean_interval = max(15.0, min(mean_interval, 1800.0))
+    # Tightened lognormal spread: median ~e^5.0 ~= 148s. sigma=0.35 (was 1.2)
+    # and the clamp below (was 15-1800s, a 120x span) bound the per-persona
+    # spread to a realistic range instead of letting a handful of personas
+    # land near either extreme and dominate/vanish on a long run -- see the
+    # asymmetry investigation this replaces (one persona at 1613 samples vs a
+    # median of 128 on a real 4h/seed=42 run, confirmed by simulation to trace
+    # to this draw, not to scheduling or burst logic). sigma/mu changes are
+    # pure post-hoc scalars on the same underlying gauss() draw (CPython's
+    # random.gauss caches every OTHER Box-Muller pair regardless of mu/sigma),
+    # so this does not change how many random() calls this consumes -- every
+    # later draw for this and subsequent personas (burst_probability,
+    # write_ratio, document_ratio, IP/resource assignment) stays bit-identical
+    # for a given seed. Unaffected by profile -- see PROFILES comment above.
+    mean_interval = rng.lognormvariate(mu=5.0, sigma=0.35)
+    # Role-based activity factor -- see ROLE_ACTIVITY_FACTOR above. A pure
+    # deterministic scalar multiply, consumes no additional random() calls.
+    mean_interval *= ROLE_ACTIVITY_FACTOR[role]
+    mean_interval = max(75.0, min(mean_interval, 300.0))
 
-    # Unaffected by profile -- see PROFILES comment above.
-    burst_probability = rng.uniform(0.05, 0.3)
+    # Narrowed from (0.05, 0.3) -- a 6x spread that multiplied on top of the
+    # interval spread above, compounding it rather than adding an independent
+    # effect (every triggered burst is itself gated behind how often a
+    # persona's own loop runs, which the interval already controls). Still a
+    # real per-persona draw (still `uniform`, one random() call, same
+    # determinism guarantee as before), just a tighter range.
+    burst_probability = rng.uniform(0.08, 0.15)
 
     # random.Random.uniform(a, b) is exactly `a + (b-a) * self.random()` --
     # ONE call to the underlying generator regardless of (a, b). So swapping
