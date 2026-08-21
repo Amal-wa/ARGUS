@@ -190,3 +190,25 @@ test_editor_get_monitoring_risk_timeline_denied if {
 		"resource": {"http_method": "GET", "route": "/monitoring/risk-timeline", "action": "read"},
 	}
 }
+
+# Boundary-safety regression tests: users_route/monitoring_route used to be a
+# bare startswith(route, "/users")/startswith(route, "/monitoring") with no
+# separator check, so any future route merely SHARING one of these prefixes
+# (no real collision exists today, but nothing enforced that) would have been
+# silently swept into the admin-only bucket. Now split into an exact match
+# plus a "/prefix/"-anchored match -- these prove a same-prefix-no-slash route
+# is NOT treated as /users or /monitoring.
+
+test_reader_get_route_sharing_users_prefix_allowed if {
+	rbac.allow with input as {
+		"identity": {"subject": "u1", "role": "reader"},
+		"resource": {"http_method": "GET", "route": "/users2", "action": "read"},
+	}
+}
+
+test_reader_get_route_sharing_monitoring_prefix_allowed if {
+	rbac.allow with input as {
+		"identity": {"subject": "u1", "role": "reader"},
+		"resource": {"http_method": "GET", "route": "/monitoring2", "action": "read"},
+	}
+}

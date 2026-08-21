@@ -16,6 +16,29 @@ decision := {
 	not rbac.allow
 }
 
+# Phase 2 of the graduated enumeration response: a risk-originated deny,
+# distinct from rbac_deny above (different policy_name, same "deny" value --
+# Rego only conflicts on DIFFERENT values for the same complete rule, so two
+# deny-producing bodies coexist fine). Mutually exclusive with rbac_deny by
+# construction: this branch requires rbac.allow, rbac_deny requires
+# not rbac.allow -- the two can never both match the same input.
+#
+# Deliberately fires even though rbac.allow is true: the whole point is that
+# a mechanical, high-volume enumeration burst gets refused even for an action
+# RBAC would otherwise permit -- a validated design decision, not a gap in
+# rbac.rego. And deliberately has NO mfa.mfa_verified branch anywhere below
+# that could rescue it (contrast with risk_decision=="step_up", which DOES
+# have an mfa_verified_allow branch) -- this deny is terminal regardless of
+# MFA state, by design: at this volume/pace, a prior MFA verification says
+# nothing about whether this specific burst is the legitimate MFA-holder.
+decision := {
+	"decision": "deny",
+	"policy_name": "risk_enumeration_deny",
+} if {
+	rbac.allow
+	adaptive_access.risk_decision == "deny"
+}
+
 decision := {
 	"decision": "allow",
 	"policy_name": "bootstrap_allow",

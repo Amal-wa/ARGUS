@@ -32,6 +32,50 @@ test_bootstrap_allow_when_no_model_trained_yet if {
 	}
 }
 
+# Model-loss regression (Gateway-side: AuthorizationService.authorize /
+# scripts/promote_model.py's model:ever_active flag), at the full decision
+# layer. Both bootstrap_mode AND model_unavailable are true simultaneously
+# here (score is null either way) -- this proves adaptive_access.rego's
+# `not model_unavailable` guard on the bootstrap-allow rule actually prevents
+# an eval_conflict_error (two different risk_decision values resolving at
+# once would crash this call outright, not just misdecide), same class of
+# risk as the R3/R4 exclusivity regression test below.
+
+test_model_unavailable_forces_step_up_after_prior_promotion_end_to_end if {
+	authz.decision == {
+		"decision": "step_up",
+		"policy_name": "step_up_required",
+	} with input as {
+		"identity": {"subject": "u1", "role": "reader"},
+		"resource": {"http_method": "GET", "route": "/documents/{document_id}", "action": "read"},
+		"risk_ctx": {"score": null, "model_ever_active": true},
+		"mfa": {"ticket_verified": false, "grace_verified": false},
+	}
+}
+
+test_model_unavailable_allowed_after_mfa_verified_end_to_end if {
+	authz.decision == {
+		"decision": "allow",
+		"policy_name": "mfa_verified_allow",
+	} with input as {
+		"identity": {"subject": "u1", "role": "reader"},
+		"resource": {"http_method": "GET", "route": "/documents/{document_id}", "action": "read"},
+		"risk_ctx": {"score": null, "model_ever_active": true},
+		"mfa": {"ticket_verified": true, "grace_verified": false},
+	}
+}
+
+test_true_first_bootstrap_still_allows_end_to_end if {
+	authz.decision == {
+		"decision": "allow",
+		"policy_name": "bootstrap_allow",
+	} with input as {
+		"identity": {"subject": "u1", "role": "reader"},
+		"resource": {"http_method": "GET", "route": "/documents/{document_id}", "action": "read"},
+		"risk_ctx": {"score": null, "model_ever_active": false},
+	}
+}
+
 test_risk_allow_when_score_below_threshold if {
 	authz.decision == {
 		"decision": "allow",
@@ -345,6 +389,93 @@ test_monitoring_audit_allowed_after_grace_verified_end_to_end if {
 		"resource": {"http_method": "GET", "route": "/monitoring/audit", "action": "read"},
 		"risk_ctx": {"score": null},
 		"mfa": {"ticket_verified": false, "grace_verified": true},
+	}
+}
+
+# Resource-enumeration gate, phase 2 (risk-originated deny) at the full
+# decision layer -- the new "risk_enumeration_deny" branch in decision.rego.
+
+# Core wiring proof: rbac.allow is TRUE (reader can GET /documents/{id}), yet
+# the decision is deny -- the risk-originated refusal overrides an
+# RBAC-permitted action, the validated design point of this phase.
+test_risk_enumeration_deny_end_to_end if {
+	authz.decision == {
+		"decision": "deny",
+		"policy_name": "risk_enumeration_deny",
+	} with input as {
+		"identity": {"subject": "u1", "role": "reader"},
+		"resource": {"http_method": "GET", "route": "/documents/{document_id}", "action": "read"},
+		"risk_ctx": {"score": 0.10, "threshold": 0.98},
+		"feature_vector": [0, 0, 0, 0, 0, 0, 0, 26, 3.0, 0, 0, 0, 0, 0, 0, 0],
+		"mfa": {"ticket_verified": false, "grace_verified": false},
+	}
+}
+
+# Terminal proof: unlike risk_decision=="step_up" (which mfa_verified_allow
+# can rescue), a fully MFA-verified session (ticket AND grace both true) still
+# gets denied -- no branch anywhere checks risk_decision=="deny" together
+# with mfa.mfa_verified. A validated design decision: at this volume/pace, a
+# prior MFA verification says nothing about whether this specific mechanical
+# burst is the legitimate MFA-holder.
+test_risk_enumeration_deny_is_terminal_even_with_mfa_verified if {
+	authz.decision == {
+		"decision": "deny",
+		"policy_name": "risk_enumeration_deny",
+	} with input as {
+		"identity": {"subject": "u1", "role": "reader"},
+		"resource": {"http_method": "GET", "route": "/documents/{document_id}", "action": "read"},
+		"risk_ctx": {"score": 0.10, "threshold": 0.98},
+		"feature_vector": [0, 0, 0, 0, 0, 0, 0, 26, 3.0, 0, 0, 0, 0, 0, 0, 0],
+		"mfa": {"ticket_verified": true, "grace_verified": true},
+	}
+}
+
+# Bootstrap, full decision layer: score null AND critical conditions both
+# true -- must deny, not crash with eval_conflict_error. The end-to-end
+# counterpart of test_high_distinct_resources_critical_deny_even_during_bootstrap.
+test_risk_enumeration_deny_during_bootstrap_end_to_end if {
+	authz.decision == {
+		"decision": "deny",
+		"policy_name": "risk_enumeration_deny",
+	} with input as {
+		"identity": {"subject": "u1", "role": "reader"},
+		"resource": {"http_method": "GET", "route": "/documents/{document_id}", "action": "read"},
+		"risk_ctx": {"score": null},
+		"feature_vector": [0, 0, 0, 0, 0, 0, 0, 26, 3.0, 0, 0, 0, 0, 0, 0, 0],
+		"mfa": {"ticket_verified": false, "grace_verified": false},
+	}
+}
+
+# Precedence: rbac_deny (not rbac.allow) wins over the risk-originated deny
+# path entirely -- an editor attempting an admin-only action at enumeration
+# volume/pace still gets rbac_deny, not risk_enumeration_deny, since the two
+# are mutually exclusive by construction (rbac.allow vs not rbac.allow) and
+# rbac_deny's guard doesn't even look at risk_decision.
+test_rbac_deny_wins_over_risk_enumeration_deny if {
+	authz.decision == {
+		"decision": "deny",
+		"policy_name": "rbac_deny",
+	} with input as {
+		"identity": {"subject": "u1", "role": "reader"},
+		"resource": {"http_method": "POST", "route": "/users", "action": "create"},
+		"risk_ctx": {"score": 0.10, "threshold": 0.98},
+		"feature_vector": [0, 0, 0, 0, 0, 0, 0, 26, 3.0, 0, 0, 0, 0, 0, 0, 0],
+		"mfa": {"ticket_verified": false, "grace_verified": false},
+	}
+}
+
+# Non-regression, full decision layer: phase 1's range (volume 15-25) still
+# resolves to step_up_required, not risk_enumeration_deny, end to end.
+test_high_distinct_resources_phase1_still_step_up_end_to_end if {
+	authz.decision == {
+		"decision": "step_up",
+		"policy_name": "step_up_required",
+	} with input as {
+		"identity": {"subject": "u1", "role": "reader"},
+		"resource": {"http_method": "GET", "route": "/documents/{document_id}", "action": "read"},
+		"risk_ctx": {"score": 0.10, "threshold": 0.98},
+		"feature_vector": [0, 0, 0, 0, 0, 0, 0, 20, 2.0, 0, 0, 0, 0, 0, 0, 0],
+		"mfa": {"ticket_verified": false, "grace_verified": false},
 	}
 }
 

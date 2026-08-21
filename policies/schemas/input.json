@@ -31,7 +31,8 @@
       "properties": {
         "score": { "anyOf": [{ "type": "number", "minimum": 0, "maximum": 1 }, { "type": "null" }] },
         "model_version": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-        "threshold": { "anyOf": [{ "type": "number", "minimum": 0, "maximum": 1 }, { "type": "null" }] }
+        "threshold": { "anyOf": [{ "type": "number", "minimum": 0, "maximum": 1 }, { "type": "null" }] },
+        "model_ever_active": { "type": "boolean" }
       }
     },
     "mfa": {
