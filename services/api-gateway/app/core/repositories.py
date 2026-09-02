@@ -745,6 +745,20 @@ class AuditPage:
     total: int
 
 
+@dataclass(slots=True)
+class CanaryComparisonRow:
+    id: int
+    trace_id: UUID
+    created_at: datetime
+    production_model_version: str
+    candidate_model_version: str
+    production_risk_score: float
+    candidate_risk_score: float
+    review_status: str
+    reviewed_by: str | None
+    reviewed_at: datetime | None
+
+
 # "updated": the row existed and was still "pending" -- the write happened.
 # "not_found": no row with this id exists at all.
 # "already_reviewed": the row exists but review_status was already
@@ -1203,3 +1217,38 @@ class MonitoringRepository:
             if existing is None:
                 return CanaryReviewOutcome(status="not_found")
             return CanaryReviewOutcome(status="already_reviewed", existing_status=existing.review_status)
+
+    async def list_canary_comparisons(self, *, status: str | None, limit: int) -> list[CanaryComparisonRow]:
+        stmt = select(
+            canary_validation_log_table.c.id,
+            canary_validation_log_table.c.trace_id,
+            canary_validation_log_table.c.created_at,
+            canary_validation_log_table.c.production_model_version,
+            canary_validation_log_table.c.candidate_model_version,
+            canary_validation_log_table.c.production_risk_score,
+            canary_validation_log_table.c.candidate_risk_score,
+            canary_validation_log_table.c.review_status,
+            canary_validation_log_table.c.reviewed_by,
+            canary_validation_log_table.c.reviewed_at,
+        ).order_by(canary_validation_log_table.c.created_at.desc()).limit(limit)
+        if status is not None:
+            stmt = stmt.where(canary_validation_log_table.c.review_status == status)
+
+        async with self._session_factory() as session:
+            rows = (await session.execute(stmt)).all()
+
+        return [
+            CanaryComparisonRow(
+                id=row.id,
+                trace_id=row.trace_id,
+                created_at=row.created_at,
+                production_model_version=row.production_model_version,
+                candidate_model_version=row.candidate_model_version,
+                production_risk_score=row.production_risk_score,
+                candidate_risk_score=row.candidate_risk_score,
+                review_status=row.review_status,
+                reviewed_by=row.reviewed_by,
+                reviewed_at=row.reviewed_at,
+            )
+            for row in rows
+        ]

@@ -30,6 +30,13 @@ class FakeModelRegistryRepository:
     # explicitly overridden, so existing tests that don't care about this
     # guard don't all need updating.
     feature_dims: dict[str, int] = field(default_factory=dict)
+    # L2 gate: defaults to 0 (no rejected canary reviews) for any version not
+    # explicitly overridden -- every pre-L2 test in this file exercises the
+    # statistical checks with no opinion on canary review state, and must
+    # keep passing unchanged now that promote_model unconditionally calls
+    # this too. Real-DB coverage of the actual SQL lives in
+    # test_promote_model_canary_gate.py, not here.
+    rejected_canary_counts: dict[str, int] = field(default_factory=dict)
 
     async def get_score_distribution(self, version: str) -> dict[str, object] | None:
         return self.score_distributions.get(version)
@@ -38,6 +45,9 @@ class FakeModelRegistryRepository:
         if version not in self.score_distributions:
             return None
         return self.feature_dims.get(version, 16)
+
+    async def count_rejected_canary_reviews(self, version: str) -> int:
+        return self.rejected_canary_counts.get(version, 0)
 
 
 def test_promote_calibrated_version_sets_both_keys():
@@ -293,6 +303,45 @@ def test_promote_aborted_promotion_does_not_set_ever_active_flag():
             await promote_model(repository, redis, "v1")
 
         assert await redis.get(EVER_ACTIVE_KEY) is None
+
+    asyncio.run(_run())
+
+
+def test_promote_blocked_by_rejected_canary_review():
+    async def _run():
+        redis = InMemoryRedis()
+        breakpoints = _linear_breakpoints(0.590, 0.666)
+        repository = FakeModelRegistryRepository(
+            score_distributions={
+                "v1": {"samples_scored": 500, "p98": 0.651, "percentile_breakpoints": breakpoints},
+            },
+            rejected_canary_counts={"v1": 2},
+        )
+
+        with pytest.raises(PromotionError, match="2 rejected canary review"):
+            await promote_model(repository, redis, "v1")
+
+        assert await redis.get(ACTIVE_VERSION_KEY) is None
+
+    asyncio.run(_run())
+
+
+def test_promote_statistical_checks_fire_before_canary_gate():
+    # Ordering proof: a version with BOTH no score_distribution AND a
+    # rejected canary review must fail on the score_distribution error, not
+    # the canary one -- the statistical checks are already-fetched, single-
+    # row lookups this function needs anyway, checked before the gate spends
+    # a separate query on "did a human object" about a model that might not
+    # even be calibrated yet (see promote_model's comment on this ordering).
+    async def _run():
+        redis = InMemoryRedis()
+        repository = FakeModelRegistryRepository(
+            score_distributions={"v1": None},
+            rejected_canary_counts={"v1": 5},
+        )
+
+        with pytest.raises(PromotionError, match="no score_distribution yet"):
+            await promote_model(repository, redis, "v1")
 
     asyncio.run(_run())
 

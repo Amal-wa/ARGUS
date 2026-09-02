@@ -181,7 +181,18 @@ def build_app(
         # play, a wildcard origin wouldn't just leak an Authorization header,
         # it would let any site ride the logged-in admin's session cookie too.
         allow_credentials=True,
-        allow_methods=["GET", "POST", "OPTIONS"],
+        # PATCH added for /monitoring/canary/{id}/review (L1's review
+        # endpoint) -- found missing live, via L3's dashboard panel: a real
+        # browser PATCH from the Argus origin failed with "Failed to fetch"
+        # because Starlette's CORSMiddleware rejects the preflight OPTIONS
+        # with 400 ("Disallowed CORS method") whenever the browser's
+        # Access-Control-Request-Method isn't in this list -- confirmed live,
+        # neither the OPTIONS nor the PATCH ever reached uvicorn's own
+        # request log. L1 shipped and passed its own tests because pytest
+        # drives the ASGI app directly, bypassing the browser's CORS
+        # preflight entirely -- this gap was only reachable from a real
+        # browser, which is exactly what L3 is the first thing to do.
+        allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
         # X-Requested-With is the CSRF header /auth/refresh and /auth/logout
         # require (see app/routers/auth.py) -- it must be explicitly
         # allow-listed here or the browser's preflight for those requests

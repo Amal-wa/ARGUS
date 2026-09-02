@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { getAlerts, getAnomalies, getRiskTimeline, getStats, getSystemStatus } from "../api/monitoring";
+import { getAlerts, getAnomalies, getPendingCanaryReviews, getRiskTimeline, getStats, getSystemStatus } from "../api/monitoring";
 import { useAuth } from "../context/AuthContext";
 import { useDecisionFeed } from "../hooks/useDecisionFeed";
 import { usePolling } from "../hooks/usePolling";
@@ -8,6 +8,8 @@ import {
   ALERTS_POLL_MS,
   ANOMALIES_INITIAL_DELAY_MS,
   ANOMALIES_POLL_MS,
+  CANARY_INITIAL_DELAY_MS,
+  CANARY_POLL_MS,
   RISK_TIMELINE_INITIAL_DELAY_MS,
   RISK_TIMELINE_POLL_MS,
   STATS_INITIAL_DELAY_MS,
@@ -18,6 +20,7 @@ import {
 import { AlertsPanel } from "./AlertsPanel";
 import { AnomaliesPanel } from "./AnomaliesPanel";
 import { AuditView } from "./AuditView";
+import { CanaryReviewPanel } from "./CanaryReviewPanel";
 import { DecisionFeed } from "./DecisionFeed";
 import { Header } from "./Header";
 import { RiskTimeline } from "./RiskTimeline";
@@ -55,6 +58,18 @@ export function Dashboard() {
     [selectedUser],
     RISK_TIMELINE_INITIAL_DELAY_MS
   );
+  // canaryRefreshTick in deps: bumping it restarts usePolling's fetch loop
+  // immediately (see usePolling's own docstring on `deps`) instead of
+  // waiting out the rest of CANARY_POLL_MS -- CanaryReviewPanel calls this
+  // right after a successful PATCH so a reviewed row leaves the queue
+  // promptly.
+  const [canaryRefreshTick, setCanaryRefreshTick] = useState(0);
+  const canaryReviews = usePolling(
+    () => getPendingCanaryReviews(authFetch),
+    CANARY_POLL_MS,
+    [canaryRefreshTick],
+    CANARY_INITIAL_DELAY_MS
+  );
   const feed = useDecisionFeed();
 
   const knownUsers = useMemo(() => {
@@ -84,6 +99,14 @@ export function Dashboard() {
           anomalies={anomalies.data?.anomalies ?? []}
           error={anomalies.error}
           rateLimited={anomalies.rateLimited}
+        />
+
+        <CanaryReviewPanel
+          comparisons={canaryReviews.data?.comparisons ?? []}
+          error={canaryReviews.error}
+          rateLimited={canaryReviews.rateLimited}
+          authFetch={authFetch}
+          onReviewed={() => setCanaryRefreshTick((tick) => tick + 1)}
         />
 
         <div className="row row--middle">

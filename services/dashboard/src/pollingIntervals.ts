@@ -13,12 +13,17 @@
 //   30x/minute changes nothing visible.
 // - system-status: the active model/threshold only change on a deliberate
 //   manual promotion (scripts/promote_model.py) -- roughly weekly at most.
+// - canary: rows only appear when canary-validator runs (docker compose run
+//   --rm canary-validator, externally triggered, not continuous) or when an
+//   operator reviews one (this panel's own PATCH) -- same infrequent,
+//   deliberate-action cadence as system-status, not a live stream.
 export const DECISIONS_POLL_MS = 2_000;
 export const RISK_TIMELINE_POLL_MS = 5_000;
 export const STATS_POLL_MS = 10_000;
 export const ALERTS_POLL_MS = 10_000;
 export const ANOMALIES_POLL_MS = 10_000;
 export const SYSTEM_STATUS_POLL_MS = 30_000;
+export const CANARY_POLL_MS = 30_000;
 
 // Small per-poller stagger applied only to the FIRST fetch on mount, so five
 // pollers with different periods don't still happen to line up into a
@@ -32,3 +37,4 @@ export const STATS_INITIAL_DELAY_MS = 800;
 export const ALERTS_INITIAL_DELAY_MS = 1_200;
 export const ANOMALIES_INITIAL_DELAY_MS = 1_400;
 export const SYSTEM_STATUS_INITIAL_DELAY_MS = 1_600;
+export const CANARY_INITIAL_DELAY_MS = 1_800;

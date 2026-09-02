@@ -257,3 +257,84 @@ def test_non_regression_row_count_unchanged_after_full_cycle():
         assert after == before
 
     asyncio.run(_run())
+
+
+# L3: GET /monitoring/canary (list_canary_comparisons) -- same real-DB
+# rationale as above, plus this is the exact query the dashboard's review
+# queue panel depends on returning an empty list (not an error) when the
+# table has nothing in it, which is this deployment's actual current state.
+
+
+def test_list_empty_table_returns_empty_list_not_error():
+    engine, session_factory, repo = _build_repo()
+
+    async def _run():
+        await _require_db(session_factory)
+        before = await _count_rows(session_factory)
+        if before != 0:
+            pytest.skip("canary_validation_log is not empty right now -- this test asserts the true-empty case")
+
+        rows = await repo.list_canary_comparisons(status=None, limit=50)
+
+        await engine.dispose()
+        assert rows == []
+
+    asyncio.run(_run())
+
+
+def test_list_pending_row_appears():
+    engine, session_factory, repo = _build_repo()
+
+    async def _run():
+        await _require_db(session_factory)
+        row_id = await _insert_row(session_factory, review_status="pending")
+        try:
+            rows = await repo.list_canary_comparisons(status=None, limit=50)
+            assert any(row.id == row_id and row.review_status == "pending" for row in rows)
+        finally:
+            await _delete_row(session_factory, row_id)
+            await engine.dispose()
+
+    asyncio.run(_run())
+
+
+def test_list_status_filter_excludes_other_statuses():
+    engine, session_factory, repo = _build_repo()
+
+    async def _run():
+        await _require_db(session_factory)
+        pending_id = await _insert_row(session_factory, review_status="pending")
+        confirmed_id = await _insert_row(session_factory, review_status="confirmed")
+        rejected_id = await _insert_row(session_factory, review_status="rejected")
+        try:
+            rows = await repo.list_canary_comparisons(status="pending", limit=50)
+            ids = {row.id for row in rows}
+
+            assert pending_id in ids
+            assert confirmed_id not in ids
+            assert rejected_id not in ids
+        finally:
+            await _delete_row(session_factory, pending_id)
+            await _delete_row(session_factory, confirmed_id)
+            await _delete_row(session_factory, rejected_id)
+            await engine.dispose()
+
+    asyncio.run(_run())
+
+
+def test_list_non_regression_row_count_unchanged():
+    engine, session_factory, repo = _build_repo()
+
+    async def _run():
+        await _require_db(session_factory)
+        before = await _count_rows(session_factory)
+
+        row_id = await _insert_row(session_factory, review_status="pending")
+        await repo.list_canary_comparisons(status="pending", limit=50)
+        await _delete_row(session_factory, row_id)
+
+        after = await _count_rows(session_factory)
+        await engine.dispose()
+        assert after == before
+
+    asyncio.run(_run())

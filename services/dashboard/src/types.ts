@@ -102,6 +102,29 @@ export interface AnomaliesResponse {
   anomalies: AnomalyRow[];
 }
 
+// "no_review_required" exists in the DB enum but nothing currently assigns
+// it (canary-validator's repository.py always inserts "pending" -- see
+// CLAUDE.md's dead-code history for this column) -- included for
+// completeness/forward-compat, not because the panel expects to see it yet.
+export type CanaryReviewStatus = "pending" | "no_review_required" | "confirmed" | "rejected";
+
+export interface CanaryComparisonRow {
+  id: number;
+  trace_id: string;
+  created_at: string;
+  production_model_version: string;
+  candidate_model_version: string;
+  production_risk_score: number;
+  candidate_risk_score: number;
+  review_status: CanaryReviewStatus;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+}
+
+export interface CanaryComparisonsResponse {
+  comparisons: CanaryComparisonRow[];
+}
+
 export type ServiceHealthValue = "healthy" | "unhealthy" | "up" | "down";
 
 export interface SystemStatusResponse {

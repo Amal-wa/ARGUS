@@ -533,6 +533,32 @@ button {
   color: var(--danger-bright);
 }
 
+/* Canary review_status badges (canary_validation_log.review_status) --
+   reuses the same semantic colors as the decision badges above rather than
+   inventing a third palette: pending ~ step_up (needs attention), confirmed
+   ~ allow (cleared), rejected ~ deny (blocked). no_review_required is
+   deliberately muted/neutral -- nothing currently assigns it (see
+   CanaryReviewStatus in types.ts), included for completeness only. */
+.badge--pending {
+  background: rgba(224, 161, 58, 0.15);
+  color: var(--warning);
+}
+
+.badge--confirmed {
+  background: rgba(47, 191, 113, 0.12);
+  color: var(--success);
+}
+
+.badge--rejected {
+  background: rgba(201, 53, 74, 0.15);
+  color: var(--danger-bright);
+}
+
+.badge--no_review_required {
+  background: rgba(124, 135, 152, 0.15);
+  color: var(--text-dim);
+}
+
 /* --------------------------------------------------------------- alerts */
 
 .alert-list {
@@ -668,6 +694,63 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ------------------------------------------------------- canary reviews */
+/* Single narrow column (like .alert-list), not a grid (like .anomaly-list)
+   -- each row carries two action buttons plus model/score detail, denser
+   content than either of those, so it needs the full card width. */
+
+.canary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  max-height: 420px;
+}
+
+.canary-item {
+  border-left: 3px solid var(--text-muted);
+  background: var(--card-bg);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  padding: 8px 12px;
+  animation: slide-in var(--transition-med);
+}
+
+.canary-item__top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.canary-item__versions {
+  font-weight: 700;
+  color: var(--text-primary);
+  font-size: 13px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canary-item__scores {
+  font-family: var(--font-display);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+
+.canary-item__meta {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.canary-item__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 /* ---------------------------------------------------------- system status */

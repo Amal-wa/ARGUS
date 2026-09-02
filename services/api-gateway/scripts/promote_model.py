@@ -44,12 +44,12 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.database import build_async_session_factory
 from app.core.redis_client import RedisLike, create_redis_client
 from app.core.settings import GatewaySettings
-from app.models.tables import ml_model_registry_table
+from app.models.tables import canary_validation_log_table, ml_model_registry_table
 from app.services.feature_vector import FEATURE_VECTOR_DIMENSIONS
 
 ACTIVE_VERSION_KEY = "model:active_version"
@@ -105,6 +105,15 @@ class ModelRegistryRepository(Protocol):
         """Returns None if the version is unknown."""
         ...
 
+    async def count_rejected_canary_reviews(self, version: str) -> int:
+        """Counts canary_validation_log rows for this candidate_model_version
+        with review_status = 'rejected'. 0 is the normal, expected result for
+        a version that was never compared (Mode A/calibration, no active
+        model yet -- e.g. this deployment's first-ever promotion) as much as
+        for one that WAS compared and had nothing rejected -- L2's gate below
+        treats both identically (see promote_model's comment on this call)."""
+        ...
+
 
 @dataclass(slots=True)
 class SqlAlchemyModelRegistryRepository:
@@ -125,6 +134,14 @@ class SqlAlchemyModelRegistryRepository:
         async with self.session_factory() as session:
             row = (await session.execute(stmt)).one_or_none()
         return None if row is None else row[0]
+
+    async def count_rejected_canary_reviews(self, version: str) -> int:
+        stmt = select(func.count()).select_from(canary_validation_log_table).where(
+            canary_validation_log_table.c.candidate_model_version == version,
+            canary_validation_log_table.c.review_status == "rejected",
+        )
+        async with self.session_factory() as session:
+            return (await session.execute(stmt)).scalar_one()
 
 
 @dataclass(slots=True)
@@ -172,6 +189,28 @@ async def promote_model(
         raise PromotionError(
             f"model {version!r} has a degenerate score_distribution (every percentile collapses to "
             f"{score_breakpoints[0]!r}) -- cannot calibrate a meaningful threshold from it"
+        )
+
+    # L2: an operator-rejected canary comparison blocks promotion outright.
+    # Checked last among the pre-promotion gates, not first -- the three
+    # checks above are already-fetched, single-row lookups on data this
+    # function needs anyway (score_distribution/feature_dims), so they fail
+    # fast on "is this model even statistically ready" before this function
+    # spends a second, separate query on "did a human flag a concern" about
+    # one that might not even be ready yet. 0 rejected rows is the SAME,
+    # non-blocking outcome whether canary-validator never ran a comparison
+    # for this version at all (Mode A/no active model yet -- e.g. this
+    # deployment's very first promotion, see the module docstring) or ran
+    # one and nothing was rejected -- this call does not, and must not,
+    # distinguish "0 rows" from "rows, none rejected": either way there is
+    # no operator-recorded objection, which is the only thing this gate
+    # cares about. 'pending'/'confirmed'/'no_review_required' rows never
+    # block, by construction of the COUNT's WHERE clause -- only
+    # 'rejected' does.
+    rejected_count = await repository.count_rejected_canary_reviews(version)
+    if rejected_count > 0:
+        raise PromotionError(
+            f"candidate {version!r} has {rejected_count} rejected canary review(s), cannot promote"
         )
 
     raw_p98 = float(score_distribution["p98"])

@@ -3,6 +3,8 @@ import type {
   AlertsResponse,
   AnomaliesResponse,
   AuditResponse,
+  CanaryComparisonsResponse,
+  CanaryReviewStatus,
   DecisionsResponse,
   EventAuditResponse,
   RiskTimelineResponse,
@@ -86,6 +88,38 @@ export function getAnomalies(authFetch: AuthFetch, limit = 50, windowMinutes = 6
 
 export function getSystemStatus(authFetch: AuthFetch): Promise<SystemStatusResponse> {
   return getJson(authFetch, "/monitoring/system-status");
+}
+
+// No status param -> every review_status, mirroring GET /monitoring/canary's
+// own "unfiltered by default" contract (see monitoring.py). This panel
+// always passes "pending" explicitly -- it's a review queue, not a general
+// audit view -- but the helper itself stays as unopinionated as getDecisions.
+export function getPendingCanaryReviews(authFetch: AuthFetch, status: CanaryReviewStatus = "pending", limit = 50): Promise<CanaryComparisonsResponse> {
+  return getJson(authFetch, `/monitoring/canary?status=${status}&limit=${limit}`);
+}
+
+// Same mutation shape as mfa.ts::verifyMfaChallenge (POST/PATCH with a JSON
+// body via authFetch, detail read from the body on failure) -- PATCH here
+// specifically because /monitoring/canary/{id}/review updates one existing
+// row in place, not create/append semantics.
+export async function reviewCanary(authFetch: AuthFetch, id: number, reviewStatus: "confirmed" | "rejected"): Promise<void> {
+  const response = await authFetch(`/monitoring/canary/${id}/review`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ review_status: reviewStatus }),
+  });
+
+  if (!response.ok) {
+    let detail = "review_failed";
+    try {
+      const body: unknown = await response.json();
+      const parsed = (body as { detail?: unknown })?.detail;
+      if (typeof parsed === "string") detail = parsed;
+    } catch {
+      // Non-JSON body -- keep the generic detail above.
+    }
+    throw new ApiError(response.status, detail);
+  }
 }
 
 export interface AuditQuery {
