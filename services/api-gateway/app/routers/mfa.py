@@ -1,22 +1,47 @@
 from __future__ import annotations
 
+from typing import Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from app.core.errors import MfaAlreadyEnrolledError
 from app.core.events import EventPayload
 from app.core.refresh_cookie import set_refresh_cookie
 from app.schemas.authorization import OpaPolicyInput
+from app.schemas.common import ErrorDetail
 from app.services.mfa_challenge import MfaVerificationStatus
 
-router = APIRouter()
+router = APIRouter(tags=["mfa"])
 
 _OTP_ISSUER = "ZT-Gateway"
 
 
-@router.post("/mfa/enroll")
+class MfaEnrollResponse(BaseModel):
+    secret: str
+    otpauth_uri: str
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+
+
+class MfaChallengeVerifyResponse(BaseModel):
+    decision: Literal["allow", "deny"]
+
+
+@router.post(
+    "/mfa/enroll",
+    response_model=MfaEnrollResponse,
+    responses={409: {"model": ErrorDetail, "description": "Account already has MFA enrolled"}},
+    summary="Enroll TOTP MFA",
+    description=(
+        "Reachable with either an mfa_enrollment-scoped token (mandatory first-time enrollment, "
+        "confined to this path by GatewayMiddleware) or a normal full access token (defensive re-check). "
+        "Also issues a fresh full session pair, so the caller never needs to log in again after enrolling."
+    ),
+)
 async def enroll_mfa(request: Request, response: Response):
     context = request.state.gateway_context
     services = request.app.state.gateway_services
@@ -56,7 +81,21 @@ async def enroll_mfa(request: Request, response: Response):
     }
 
 
-@router.post("/mfa/challenge/verify")
+@router.post(
+    "/mfa/challenge/verify",
+    response_model=MfaChallengeVerifyResponse,
+    responses={
+        401: {"model": ErrorDetail, "description": "Challenge missing/expired/user-mismatched, or wrong TOTP code"},
+        403: {"model": ErrorDetail, "description": "No MFA enrolled for this account, or TOTP code already used (replay)"},
+        429: {"model": ErrorDetail, "description": "Too many failed attempts -- MFA temporarily locked"},
+    },
+    summary="Resolve a step-up challenge",
+    description=(
+        "Verifies a TOTP code against a pending challenge_id and, on success, re-evaluates OPA using the "
+        "originally-challenged request's stored risk_ctx -- this call itself is never logged as a decision; "
+        "the caller's actual retried request is what gets logged, exactly once."
+    ),
+)
 async def verify_mfa_challenge(request: Request):
     body = await request.json()
     challenge_id = body.get("challenge_id")

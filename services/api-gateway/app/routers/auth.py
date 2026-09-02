@@ -2,12 +2,36 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from app.core.events import EventPayload
 from app.core.refresh_cookie import REFRESH_COOKIE_NAME, clear_refresh_cookie, set_refresh_cookie
+from app.schemas.common import ErrorDetail
 from app.services.auth import LoginStatus, RefreshStatus
 
-router = APIRouter()
+router = APIRouter(tags=["auth"])
+
+
+class TokenResponse(BaseModel):
+    """Access token only -- the refresh token is never in a JSON body, it
+    travels solely as an httpOnly `refresh_token` cookie (see set_refresh_cookie)."""
+
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+
+
+class MfaEnrollmentRequiredResponse(BaseModel):
+    """Returned instead of a real session when the account has no MFA
+    enrolled yet -- enrollment_token is scoped to POST /mfa/enroll only."""
+
+    enrollment_token: str
+    token_type: str = "bearer"
+    mfa_enrollment_required: bool = True
+
+
+class LogoutResponse(BaseModel):
+    detail: str
 
 # CSRF defence for the two cookie-authenticated, state-changing endpoints
 # below (/auth/refresh, /auth/logout). httpOnly stops JS from reading the
@@ -28,7 +52,17 @@ def _csrf_header_present(request: Request) -> bool:
     return request.headers.get(CSRF_HEADER_NAME) == CSRF_HEADER_VALUE
 
 
-@router.post("/auth/login")
+@router.post(
+    "/auth/login",
+    response_model=TokenResponse | MfaEnrollmentRequiredResponse,
+    responses={401: {"model": ErrorDetail, "description": "Invalid credentials or account locked (deliberately identical body/status for both -- see comment below)"}},
+    summary="Log in",
+    description=(
+        "Returns a real access token, OR (if the account has no MFA enrolled yet) an enrollment_token "
+        "scoped to POST /mfa/enroll only -- never both. The refresh token is never in this body, only "
+        "in an httpOnly cookie."
+    ),
+)
 async def login(request: Request):
     body = await request.json()
     email = body.get("email")
@@ -107,7 +141,16 @@ async def login(request: Request):
     return response
 
 
-@router.post("/auth/refresh")
+@router.post(
+    "/auth/refresh",
+    response_model=TokenResponse,
+    responses={
+        401: {"model": ErrorDetail, "description": "Missing/invalid/expired/reused refresh token -- cookie is cleared in the response"},
+        403: {"model": ErrorDetail, "description": "Missing X-Requested-With CSRF header"},
+    },
+    summary="Rotate the refresh token",
+    description="Reads the refresh token from the httpOnly cookie (never the body), rotates it, sets a new cookie.",
+)
 async def refresh(request: Request):
     if not _csrf_header_present(request):
         return JSONResponse({"detail": "missing csrf header"}, status_code=403)
@@ -160,7 +203,13 @@ async def refresh(request: Request):
     return response
 
 
-@router.post("/auth/logout")
+@router.post(
+    "/auth/logout",
+    response_model=LogoutResponse,
+    responses={403: {"model": ErrorDetail, "description": "Missing X-Requested-With CSRF header"}},
+    summary="Log out",
+    description="Revokes the presented refresh token's whole family server-side and clears the cookie.",
+)
 async def logout(request: Request):
     # Same CSRF posture as /auth/refresh: this is also a cookie-authenticated,
     # state-changing endpoint (it revokes a live refresh token server-side),

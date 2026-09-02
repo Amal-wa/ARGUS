@@ -55,7 +55,21 @@ from app.services.mfa_enrollment import MfaEnrollmentService
 # token, where they are the correct security property (rotation + reuse
 # detection), not on every request. check_jti_blacklist (immediate revocation)
 # is unaffected and still runs on every authenticated request.
-PUBLIC_PATHS = {"/health"}
+PUBLIC_PATHS = {
+    "/health",
+    # FastAPI's auto-generated API docs (main.py never sets docs_url=None) --
+    # these only describe route SHAPES (paths, request/response schemas),
+    # never data, and "Try it out" from Swagger UI still goes through every
+    # normal auth/RBAC/step-up check on the actual call. This project's own
+    # posture is candor, not obscurity (see CLAUDE.md/SECURITY.md), so gating
+    # the docs themselves behind a JWT would only make the API harder to
+    # review, not harder to attack. Swagger UI's own JS/CSS assets load from
+    # a CDN client-side, not through this gateway, so no further paths are
+    # needed here for that.
+    "/docs",
+    "/redoc",
+    "/openapi.json",
+}
 AUTH_PATHS = {"/auth/login", "/auth/refresh", "/auth/logout"}
 GATEWAY_INTERNAL_PATHS = {"/mfa/enroll", "/mfa/challenge/verify"}
 

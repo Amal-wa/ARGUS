@@ -8,7 +8,9 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-router = APIRouter()
+from app.schemas.common import ErrorDetail
+
+router = APIRouter(tags=["users"])
 
 _password_hasher = PasswordHasher()
 
@@ -31,6 +33,21 @@ class UserUpdateRequest(BaseModel):
     is_active: bool | None = None
 
 
+class UserResponse(BaseModel):
+    user_id: UUID
+    email: str
+    role: Role
+    is_active: bool
+
+
+class UserListResponse(BaseModel):
+    users: list[UserResponse]
+
+
+class DeactivatedResponse(BaseModel):
+    detail: str
+
+
 def _serialize(user) -> dict:
     # Never include password_hash, failed_login_attempts, or locked_until --
     # those are auth-internal state, not part of the admin-facing user resource.
@@ -42,14 +59,24 @@ def _serialize(user) -> dict:
     }
 
 
-@router.get("/users")
+@router.get(
+    "/users",
+    response_model=UserListResponse,
+    summary="List users",
+    description="Admin-only (see policies/authz/rbac.rego's users_route). Never includes password_hash or lockout state.",
+)
 async def list_users(request: Request, limit: int = 50, offset: int = 0):
     services = request.app.state.gateway_services
     users = await services.user_repository.list_all(limit=limit, offset=offset)
     return {"users": [_serialize(user) for user in users]}
 
 
-@router.get("/users/{user_id}")
+@router.get(
+    "/users/{user_id}",
+    response_model=UserResponse,
+    responses={404: {"model": ErrorDetail, "description": "No user with this id"}},
+    summary="Get a user",
+)
 async def get_user(user_id: UUID, request: Request):
     services = request.app.state.gateway_services
     user = await services.user_repository.get_by_id(user_id)
@@ -58,7 +85,16 @@ async def get_user(user_id: UUID, request: Request):
     return _serialize(user)
 
 
-@router.post("/users", status_code=201)
+@router.post(
+    "/users",
+    status_code=201,
+    response_model=UserResponse,
+    summary="Create a user",
+    description=(
+        "Sensitive action: policies/risk/adaptive_access.rego's sensitive_action rule forces a fresh "
+        "step-up here regardless of ML score, even in bootstrap mode."
+    ),
+)
 async def create_user(body: UserCreateRequest, request: Request):
     services = request.app.state.gateway_services
     password_hash = _password_hasher.hash(body.password)
@@ -66,7 +102,13 @@ async def create_user(body: UserCreateRequest, request: Request):
     return _serialize(user)
 
 
-@router.put("/users/{user_id}")
+@router.put(
+    "/users/{user_id}",
+    response_model=UserResponse,
+    responses={404: {"model": ErrorDetail, "description": "No user with this id"}},
+    summary="Update a user",
+    description="Sensitive action (same fresh-step-up rule as POST /users -- see its description).",
+)
 async def update_user(user_id: UUID, body: UserUpdateRequest, request: Request):
     services = request.app.state.gateway_services
     user = await services.user_repository.update_user(
@@ -77,7 +119,17 @@ async def update_user(user_id: UUID, body: UserUpdateRequest, request: Request):
     return _serialize(user)
 
 
-@router.delete("/users/{user_id}")
+@router.delete(
+    "/users/{user_id}",
+    response_model=DeactivatedResponse,
+    responses={404: {"model": ErrorDetail, "description": "No user with this id"}},
+    summary="Deactivate a user",
+    description=(
+        "Soft delete only (is_active=false) -- never a hard DELETE, since a real delete would destroy "
+        "accounts still in active use. Also a sensitive action (delete on any resource always forces a "
+        "fresh step-up, see policies/risk/adaptive_access.rego)."
+    ),
+)
 async def delete_user(user_id: UUID, request: Request):
     # MUST be a soft delete (is_active = false) -- never a hard DELETE. A real
     # delete would destroy accounts the traffic generator (or real users) are

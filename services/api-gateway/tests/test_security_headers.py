@@ -114,13 +114,15 @@ def test_api_route_gets_strict_csp_and_defensive_headers():
 def test_docs_route_gets_a_relaxed_csp_permitting_the_swagger_ui_cdn():
     client = _client()
 
-    # /docs requires a bearer token just like everything else here (Zero-Trust
-    # -- confirmed live: GET /docs 401s without one), so this asserts on the
-    # 401 response, not a 200. SecurityHeadersMiddleware picks the CSP from
-    # the request path alone, independent of the auth outcome.
+    # /docs is now in GatewayMiddleware.PUBLIC_PATHS (see that module) -- it
+    # only describes route SHAPES, never data, and every actual call made
+    # from "Try it out" still goes through the normal auth/RBAC/step-up
+    # pipeline regardless. _build_test_app above wires the real
+    # GatewayMiddleware (not a stub), so this test exercises the real
+    # PUBLIC_PATHS set and now gets a genuine 200, not the pre-fix 401.
     response = client.get("/docs")
 
-    assert response.status_code == 401
+    assert response.status_code == 200
     csp = response.headers["content-security-policy"]
     assert "cdn.jsdelivr.net" in csp
     assert csp != "default-src 'none'; frame-ancestors 'none'"

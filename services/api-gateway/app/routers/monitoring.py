@@ -4,12 +4,175 @@ import csv
 import io
 from datetime import datetime
 from typing import Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-router = APIRouter()
+from app.schemas.common import ErrorDetail
+
+router = APIRouter(tags=["monitoring"])
+
+
+# Admin-only for every route in this file (see policies/authz/rbac.rego's
+# monitoring_route) -- never on the business request path, only ever read by
+# the Argus dashboard/analysts. Response models here document shape only;
+# handlers still build and return plain dicts by hand.
+
+
+class StatsResponse(BaseModel):
+    total_decisions: int
+    allow: int
+    deny: int
+    step_up: int
+    allow_rate: float
+    active_users: int
+    distinct_ips: int
+    window_minutes: int
+
+
+class DecisionRow(BaseModel):
+    trace_id: UUID
+    created_at: str
+    user_id: UUID
+    user_email: str | None
+    resource: str
+    action: str
+    decision: str
+    policy_name: str
+    risk_score: float | None
+    model_version: str | None
+    ip_address: str
+
+
+class DecisionsResponse(BaseModel):
+    decisions: list[DecisionRow]
+
+
+class RiskTimelinePoint(BaseModel):
+    created_at: str
+    user_email: str | None
+    risk_score: float | None
+
+
+class RiskTimelineResponse(BaseModel):
+    threshold: float | None
+    points: list[RiskTimelinePoint]
+
+
+class AlertRow(BaseModel):
+    type: str
+    created_at: str
+    user_email: str | None
+    resource: str | None
+    risk_score: float | None
+    trace_id: str | None
+
+
+class AlertsResponse(BaseModel):
+    alerts: list[AlertRow]
+
+
+class AnomalyRow(BaseModel):
+    created_at: str
+    user_email: str | None
+    resource: str | None
+    anomaly_type: str
+    severity: str
+    risk_score: float
+    trace_id: str | None
+
+
+class AnomaliesResponse(BaseModel):
+    anomalies: list[AnomalyRow]
+
+
+class ServiceHealth(BaseModel):
+    isolation_forest: str
+    opa: str
+    redis: str
+    postgres: str
+
+
+class SystemStatusResponse(BaseModel):
+    active_model: str | None
+    active_threshold: float | None
+    candidate_model: str | None
+    training_samples: int | None
+    model_trained_at: str | None
+    score_distribution: dict | None
+    services: ServiceHealth
+
+
+class DecisionAuditRow(BaseModel):
+    id: int
+    trace_id: UUID
+    created_at: str
+    user_id: UUID
+    user_email: str | None
+    role: str
+    resource: str
+    action: str
+    ip_address: str
+    risk_score: float | None
+    model_version: str | None
+    is_anomaly: str
+    decision: str
+    policy_name: str
+    reason: str | None
+    latency_ms: int
+
+
+class EventAuditRow(BaseModel):
+    id: int
+    trace_id: UUID
+    created_at: str
+    user_id: UUID | None
+    ip_address: str
+    http_method: str
+    request_path: str
+    latency_ms: int
+    http_status: int
+    error_code: str | None
+    error_message: str | None
+    event_type: str
+
+
+class AuditPageResponse(BaseModel):
+    rows: list[DecisionAuditRow] | list[EventAuditRow]
+    page: int
+    page_size: int
+    total: int
+
+
+class CanaryComparisonRow(BaseModel):
+    id: int
+    trace_id: UUID
+    created_at: str
+    production_model_version: str
+    candidate_model_version: str
+    production_risk_score: float | None
+    candidate_risk_score: float
+    review_status: Literal["pending", "no_review_required", "confirmed", "rejected"]
+    reviewed_by: str | None
+    reviewed_at: str | None
+
+
+class CanaryListResponse(BaseModel):
+    comparisons: list[CanaryComparisonRow]
+
+
+class CanaryReviewResponse(BaseModel):
+    id: int
+    review_status: Literal["confirmed", "rejected"]
+    reviewed_by: str
+    reviewed_at: str
+
+
+class CanaryAlreadyReviewedResponse(BaseModel):
+    detail: str
+    review_status: str
 
 
 class CanaryReviewRequest(BaseModel):
@@ -32,6 +195,9 @@ MAX_DECISIONS_LIMIT = 200
 
 DEFAULT_ALERTS_LIMIT = 50
 MAX_ALERTS_LIMIT = 200
+
+DEFAULT_CANARY_LIMIT = 50
+MAX_CANARY_LIMIT = 200
 
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 200
@@ -98,7 +264,12 @@ def _clamp(value: int, *, minimum: int, maximum: int) -> int:
     return max(minimum, min(value, maximum))
 
 
-@router.get("/monitoring/stats")
+@router.get(
+    "/monitoring/stats",
+    response_model=StatsResponse,
+    summary="Aggregate decision stats",
+    description="Counts/rates over a bounded rolling window (max 7 days) -- allow/deny/step_up totals, active users, distinct IPs.",
+)
 async def get_stats(request: Request, window_minutes: int = DEFAULT_WINDOW_MINUTES):
     services = request.app.state.gateway_services
     window_minutes = _clamp(window_minutes, minimum=1, maximum=MAX_WINDOW_MINUTES)
@@ -134,7 +305,12 @@ def _serialize_decision(row) -> dict:
     }
 
 
-@router.get("/monitoring/decisions")
+@router.get(
+    "/monitoring/decisions",
+    response_model=DecisionsResponse,
+    summary="Recent decisions feed",
+    description="Most recent opa_decision_log rows -- what the dashboard's Live decision feed polls.",
+)
 async def list_decisions(
     request: Request,
     limit: int = DEFAULT_DECISIONS_LIMIT,
@@ -148,7 +324,12 @@ async def list_decisions(
     return {"decisions": [_serialize_decision(row) for row in rows]}
 
 
-@router.get("/monitoring/risk-timeline")
+@router.get(
+    "/monitoring/risk-timeline",
+    response_model=RiskTimelineResponse,
+    summary="ML risk score over time",
+    description="Historical risk_score points plus the currently active model:active_threshold, for the dashboard's timeline chart.",
+)
 async def get_risk_timeline(
     request: Request, user_email: str | None = None, window_minutes: int = DEFAULT_TIMELINE_WINDOW_MINUTES
 ):
@@ -168,7 +349,12 @@ async def get_risk_timeline(
     }
 
 
-@router.get("/monitoring/alerts")
+@router.get(
+    "/monitoring/alerts",
+    response_model=AlertsResponse,
+    summary="Recent step-up/deny alerts",
+    description="A lighter-weight feed than /monitoring/audit, for the dashboard's Alerts panel.",
+)
 async def get_alerts(request: Request, limit: int = DEFAULT_ALERTS_LIMIT, window_minutes: int = DEFAULT_WINDOW_MINUTES):
     services = request.app.state.gateway_services
     limit = _clamp(limit, minimum=1, maximum=MAX_ALERTS_LIMIT)
@@ -190,7 +376,15 @@ async def get_alerts(request: Request, limit: int = DEFAULT_ALERTS_LIMIT, window
     }
 
 
-@router.get("/monitoring/anomalies")
+@router.get(
+    "/monitoring/anomalies",
+    response_model=AnomaliesResponse,
+    summary="Behavioral-detector anomalies",
+    description=(
+        "event_anomaly rows written by the behavioral-detector service (resource_access/authentication/"
+        "network/authorization) -- separate from /monitoring/alerts so a burst of step_ups can't crowd these out."
+    ),
+)
 async def get_anomalies(request: Request, limit: int = DEFAULT_ALERTS_LIMIT, window_minutes: int = DEFAULT_WINDOW_MINUTES):
     # Dedicated feed for behavioral-detector's event_anomaly rows, separate
     # from /monitoring/alerts -- see MonitoringRepository.get_anomalies for
@@ -252,7 +446,15 @@ async def _service_health(services) -> dict:
     return health
 
 
-@router.get("/monitoring/system-status")
+@router.get(
+    "/monitoring/system-status",
+    response_model=SystemStatusResponse,
+    summary="ML model + dependency health",
+    description=(
+        "active_model is null while in bootstrap mode (no model ever promoted). Dependency health checks "
+        "never let one failure 500 the whole endpoint -- each is independently caught and reported."
+    ),
+)
 async def get_system_status(request: Request):
     services = request.app.state.gateway_services
 
@@ -314,7 +516,18 @@ def _serialize_event_audit_row(row) -> dict:
     }
 
 
-@router.get("/monitoring/audit")
+@router.get(
+    "/monitoring/audit",
+    response_model=AuditPageResponse,
+    summary="Paginated audit log (decisions or events)",
+    description=(
+        "The single highest reconnaissance-value read in this system -- gated by its own step-up rule "
+        "(policies/risk/adaptive_access.rego's monitoring_audit_access), independent of ML score/bootstrap. "
+        "Two row shapes depending on whether `event_type` is set: DecisionAuditRow (opa_decision_log, the "
+        "default) or EventAuditRow (the `events` table -- rate limits, pre-auth failures, step-up challenges). "
+        "`format=csv` bypasses pagination (up to 5000 rows) and returns `text/csv` instead of this JSON shape."
+    ),
+)
 async def get_audit(
     request: Request,
     page: int = 1,
@@ -369,7 +582,55 @@ async def get_audit(
     return {"rows": rows, "page": page, "page_size": page_size, "total": page_result.total}
 
 
-@router.patch("/monitoring/canary/{canary_id}/review")
+def _serialize_canary(row) -> dict:
+    return {
+        "id": row.id,
+        "trace_id": str(row.trace_id),
+        "created_at": row.created_at.isoformat(),
+        "production_model_version": row.production_model_version,
+        "candidate_model_version": row.candidate_model_version,
+        "production_risk_score": row.production_risk_score,
+        "candidate_risk_score": row.candidate_risk_score,
+        "review_status": row.review_status,
+        "reviewed_by": row.reviewed_by,
+        "reviewed_at": row.reviewed_at.isoformat() if row.reviewed_at is not None else None,
+    }
+
+
+@router.get(
+    "/monitoring/canary",
+    response_model=CanaryListResponse,
+    summary="List canary comparisons",
+    description="Candidate-vs-production score comparisons written by canary-validator. Defaults to every review_status; the dashboard's review queue passes status=pending explicitly.",
+)
+async def list_canary_comparisons(
+    request: Request,
+    status: Literal["pending", "no_review_required", "confirmed", "rejected"] | None = None,
+    limit: int = DEFAULT_CANARY_LIMIT,
+):
+    # status unset -> every review_status, same "optional filter, unfiltered
+    # by default" convention as list_decisions' `decision` param above --
+    # an admin auditing past reviews (confirmed/rejected) needs the same
+    # endpoint, not a second one. L3's dashboard panel always passes
+    # status=pending explicitly (that's its whole purpose: a review queue),
+    # so the unfiltered default only matters for callers other than it.
+    services = request.app.state.gateway_services
+    limit = _clamp(limit, minimum=1, maximum=MAX_CANARY_LIMIT)
+
+    rows = await services.monitoring_repository.list_canary_comparisons(status=status, limit=limit)
+    return {"comparisons": [_serialize_canary(row) for row in rows]}
+
+
+@router.patch(
+    "/monitoring/canary/{canary_id}/review",
+    response_model=CanaryReviewResponse,
+    responses={
+        404: {"model": ErrorDetail, "description": "No canary comparison with this id"},
+        409: {"model": CanaryAlreadyReviewedResponse, "description": "Already reviewed -- decisions here are one-shot, not overwritable"},
+    },
+    summary="Confirm or reject a canary comparison",
+    description="Human-in-the-loop gate on the ML model lifecycle itself -- reviewed_by is derived from the caller's own verified identity, never client-supplied.",
+)
 async def review_canary(canary_id: int, body: CanaryReviewRequest, request: Request):
     # Admin-only via rbac.rego's monitoring_route prefix match (/monitoring/*)
     # -- no role check here, same as every other route in this file.
