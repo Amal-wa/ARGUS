@@ -1,4 +1,4 @@
-# ZT_project — Zero-Trust API Access Control Platform
+# ARGUS — Zero Trust API Gateway
 
 Passerelle API où chaque requête est authentifiée, scorée par un modèle de détection
 d'anomalie (Isolation Forest), puis autorisée par un moteur de politique (OPA) qui combine
@@ -22,7 +22,7 @@ dans `docker-compose.yml` — `Up` suffit pour eux, n'attendez pas `(healthy)`.
 | Service | URL locale | Notes |
 |---|---|---|
 | `api-gateway` | http://localhost:8000 | Swagger : `/docs` · ReDoc : `/redoc` — pas de healthcheck |
-| `dashboard` (Argus) | http://localhost:5173 | `admin1@zt.local` / `ChangeMe123!` — pas de healthcheck |
+| `dashboard` (ARGUS-dashboard) | http://localhost:5173 | `admin1@zt.local` / `ChangeMe123!` — pas de healthcheck |
 | `postgres` | localhost:5433 | user `postgres` / db `zt_db` |
 | `redis` | localhost:6379 | `-a redis-dev-password` |
 | `vault` | http://localhost:8200 | mode dev, token `dev-root-token` |
@@ -59,7 +59,7 @@ SHA-256 (`scripts/verify_audit_integrity.py` — lecture seule, sûr à tout mom
 | `ml-trainer` | Job batch | `docker compose run --rm ml-trainer` — entraîne un candidat, s'arrête. |
 | `canary-validator` | Job batch | Compare un candidat au modèle en production sur du trafic réel, s'arrête. |
 | `behavioral-detector` | Daemon (pas d'HTTP) | Boucle `scan; sleep(60)` sur les mêmes fenêtres Redis que le score ML. |
-| `dashboard` (Argus) | SPA React | Ne parle qu'au gateway, depuis le navigateur. |
+| `dashboard` (ARGUS-dashboard) | SPA React | Ne parle qu'au gateway, depuis le navigateur. |
 
 **Remarque** : demander où sont les "endpoints" de `ml-trainer`/`canary-validator`/
 `behavioral-detector` — ce sont des jobs/daemon, pas des services REST. Rien à documenter
