@@ -1,0 +1,754 @@
+<meta charset="utf-8">
+<title>ZT_project</title>
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --ink: #14181f;
+    --ground: #f5f6f8;
+    --surface: #ffffff;
+    --surface-2: #eef0f3;
+    --line: #dfe3e8;
+    --muted: #5b6472;
+    --accent: #1f6f78;
+    --accent-ink: #ffffff;
+    --ok: #2f8f5b;
+    --warn: #b6791f;
+    --danger: #b73b3b;
+    --code-bg: #eef1f0;
+    --shadow: 0 1px 2px rgba(20, 24, 31, 0.06), 0 8px 24px rgba(20, 24, 31, 0.06);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink: #e8eaee;
+      --ground: #10141b;
+      --surface: #171c25;
+      --surface-2: #1d2330;
+      --line: #2a3140;
+      --muted: #8b93a3;
+      --accent: #59c2cc;
+      --accent-ink: #0a1418;
+      --ok: #4ec37f;
+      --warn: #d99a3f;
+      --danger: #e0685f;
+      --code-bg: #131820;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.35);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ink: #e8eaee;
+    --ground: #10141b;
+    --surface: #171c25;
+    --surface-2: #1d2330;
+    --line: #2a3140;
+    --muted: #8b93a3;
+    --accent: #59c2cc;
+    --accent-ink: #0a1418;
+    --ok: #4ec37f;
+    --warn: #d99a3f;
+    --danger: #e0685f;
+    --code-bg: #131820;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.35);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection { background: var(--accent); color: var(--accent-ink); }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible, button:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  code, .mono, .badge, .kbd, table.data, nav.toc {
+    font-family: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
+  }
+
+  code {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0.05em 0.4em;
+    font-size: 0.88em;
+  }
+
+  h1, h2, h3, h4 { text-wrap: balance; font-weight: 600; line-height: 1.25; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+    gap: 0;
+    max-width: 1180px;
+    margin: 0 auto;
+  }
+
+  /* ---------- Sidebar ---------- */
+  aside.sidebar {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    height: 100vh;
+    overflow-y: auto;
+    padding: 32px 20px 40px 28px;
+    border-right: 1px solid var(--line);
+  }
+
+  .brand {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 13px;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .brand strong {
+    display: block;
+    font-family: "IBM Plex Sans", sans-serif;
+    font-size: 19px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+    text-transform: none;
+    margin-top: 4px;
+  }
+
+  nav.toc { margin-top: 28px; font-size: 12.5px; }
+  nav.toc a {
+    display: block;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 5px 0 5px 10px;
+    border-left: 2px solid transparent;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  nav.toc a:hover, nav.toc a:focus-visible { color: var(--ink); border-left-color: var(--line); }
+  nav.toc .toc-group {
+    margin-top: 16px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    font-size: 10.5px;
+    padding-left: 10px;
+  }
+
+  .status-chip {
+    margin-top: 24px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11.5px;
+    color: var(--muted);
+    padding: 10px 12px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 20%, transparent); }
+
+  /* ---------- Main ---------- */
+  main { padding: 56px 56px 120px 48px; min-width: 0; }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 10px;
+  }
+
+  h1.title { font-size: clamp(28px, 4vw, 38px); margin: 0 0 14px; }
+
+  .lede { font-size: 18px; color: var(--muted); max-width: 62ch; margin: 0 0 28px; }
+
+  .meta-row {
+    display: flex; flex-wrap: wrap; gap: 10px 22px;
+    font-size: 12.5px; color: var(--muted);
+    padding-bottom: 28px; margin-bottom: 40px;
+    border-bottom: 1px solid var(--line);
+  }
+  .meta-row span strong { color: var(--ink); font-weight: 600; }
+
+  section { margin-bottom: 64px; scroll-margin-top: 24px; }
+  section > h2 {
+    font-size: 22px;
+    display: flex; align-items: baseline; gap: 12px;
+    margin: 0 0 6px;
+  }
+  section > h2 .num {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  section > .section-intro { color: var(--muted); max-width: 68ch; margin: 0 0 24px; }
+
+  h3 { font-size: 16.5px; margin: 28px 0 10px; }
+  p { max-width: 70ch; }
+  ul, ol { max-width: 68ch; padding-left: 22px; }
+  li { margin-bottom: 6px; }
+
+  /* ---------- Component grid ---------- */
+  .comp-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 14px;
+    margin: 20px 0 8px;
+  }
+  .comp-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 18px;
+    box-shadow: var(--shadow);
+  }
+  .comp-card h4 { margin: 0 0 8px; font-size: 15px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .comp-card h4 code { font-size: 13px; }
+  .comp-card p { margin: 0; font-size: 13.5px; color: var(--muted); max-width: none; }
+  .type-pill {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 3px 7px;
+    border-radius: 999px;
+    white-space: nowrap;
+    flex: none;
+  }
+  .type-pill.rest { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+  .type-pill.internal { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+  .type-pill.batch { background: var(--surface-2); color: var(--muted); }
+  .type-pill.daemon { background: var(--surface-2); color: var(--muted); }
+  .type-pill.spa { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+
+  /* ---------- Diagrams ---------- */
+  figure.diagram {
+    margin: 24px 0 8px;
+    padding: 18px 20px 14px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+  }
+  figure.diagram svg { width: 100%; height: auto; display: block; color: var(--ink); }
+  figure.diagram figcaption { margin-top: 12px; font-size: 13px; color: var(--muted); }
+  .diagram-accent { color: var(--accent); }
+
+  /* ---------- Tables ---------- */
+  .table-wrap { overflow-x: auto; margin: 18px 0; border: 1px solid var(--line); border-radius: 10px; }
+  table.data { width: 100%; border-collapse: collapse; font-size: 12.5px; background: var(--surface); }
+  table.data th, table.data td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  table.data th { color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; font-size: 10.5px; background: var(--surface-2); }
+  table.data tr:last-child td { border-bottom: none; }
+  table.data td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  table.data td.wrap { white-space: normal; font-family: "IBM Plex Sans", sans-serif; color: var(--muted); }
+
+  /* ---------- Badges (decisions / methods) ---------- */
+  .badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 4px; letter-spacing: 0.02em; }
+  .badge.allow { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+  .badge.deny { background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); }
+  .badge.step-up { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+  .badge.get { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+  .badge.post { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+  .badge.delete { background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); }
+
+  /* ---------- Callouts ---------- */
+  .callout {
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    background: var(--surface);
+    border-radius: 0 8px 8px 0;
+    padding: 14px 18px;
+    margin: 20px 0;
+    font-size: 14px;
+    max-width: 70ch;
+  }
+  .callout.warn { border-left-color: var(--warn); }
+  .callout p { margin: 0; max-width: none; }
+  .callout strong { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 6px; font-family: "IBM Plex Mono", monospace; }
+
+  /* ---------- Code blocks ---------- */
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-size: 12.5px;
+    line-height: 1.6;
+  }
+  pre code { background: none; border: none; padding: 0; }
+
+  /* ---------- Footer nav ---------- */
+  .cta-row { display: flex; flex-wrap: wrap; gap: 12px; margin: 22px 0; }
+  .cta {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink);
+    text-decoration: none;
+    font-size: 13.5px;
+    font-weight: 500;
+    box-shadow: var(--shadow);
+    transition: border-color 0.15s, transform 0.1s;
+  }
+  .cta:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .cta.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .cta .arrow { font-family: "IBM Plex Mono", monospace; }
+
+  footer.page-footer {
+    margin-top: 80px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  @media (max-width: 880px) {
+    .layout { grid-template-columns: 1fr; }
+    aside.sidebar { position: relative; height: auto; border-right: none; border-bottom: 1px solid var(--line); }
+    main { padding: 40px 24px 100px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">ZT_project<strong>Documentation technique</strong></div>
+
+    <nav class="toc" aria-label="Sommaire">
+      <a href="#overview">Vue d'ensemble</a>
+      <a href="#architecture">Architecture &amp; composants</a>
+      <a href="#pipeline">Pipeline de décision</a>
+      <div class="toc-group">Sécurité</div>
+      <a href="#rbac">RBAC via OPA</a>
+      <a href="#adaptive">MFA adaptatif</a>
+      <a href="#audit">Audit inviolable</a>
+      <div class="toc-group">Machine learning</div>
+      <a href="#features">Vecteur de features</a>
+      <a href="#lifecycle">Cycle de vie du modèle</a>
+      <div class="toc-group">Vérification</div>
+      <a href="#state">État live vérifié</a>
+      <a href="#explore">Explorer par soi-même</a>
+      <a href="#limits">Limites assumées</a>
+    </nav>
+
+    <div class="status-chip">
+      <span class="status-dot" aria-hidden="true"></span>
+      <span>8 conteneurs actifs · modèle <code>v2</code> en production</span>
+    </div>
+  </aside>
+
+  <main>
+    <p class="eyebrow">Plateforme de contrôle d'accès Zero-Trust</p>
+    <h1 class="title">ZT_project</h1>
+    <p class="lede">
+      Une passerelle API où chaque requête est authentifiée, scorée par un modèle de détection
+      d'anomalie, puis autorisée par un moteur de politique qui combine RBAC, score de risque ML
+      et règles indépendantes du score — avec un journal de décisions à chaîne de hash inviolable.
+      Ce document décrit l'architecture réelle du système et renvoie, section par section, vers le
+      code et l'état vérifié en direct qui le prouvent.
+    </p>
+
+    <div class="meta-row">
+      <span><strong>7</strong> composants</span>
+      <span><strong>21</strong> routes API documentées (<a href="http://localhost:8000/docs">/docs</a>)</span>
+      <span><strong>16</strong> dimensions du vecteur de comportement</span>
+      <span><strong>76 388</strong> décisions auditées, chaîne intacte</span>
+    </div>
+
+    <!-- ============ OVERVIEW ============ -->
+    <section id="overview">
+      <h2><span class="num">01</span> Vue d'ensemble</h2>
+      <p class="section-intro">
+        Le principe Zero-Trust appliqué ici : un jeton valide et un rôle autorisé ne suffisent
+        jamais à eux seuls. Trois couches de décision, indépendantes les unes des autres,
+        doivent toutes être franchies.
+      </p>
+
+      <div class="comp-grid">
+        <div class="comp-card">
+          <h4>RBAC <span class="type-pill rest">toujours</span></h4>
+          <p>Rôle → action autorisée. Vit dans OPA, pas dans le code Python — <code>policies/authz/rbac.rego</code>.</p>
+        </div>
+        <div class="comp-card">
+          <h4>Score ML <span class="type-pill internal">si actif</span></h4>
+          <p>Isolation Forest, comportement récent vs seuil calibré (percentile p98). Absent en bootstrap.</p>
+        </div>
+        <div class="comp-card">
+          <h4>Règles indépendantes <span class="type-pill rest">toujours</span></h4>
+          <p>IPs distinctes, énumération de ressources, actions sensibles — bypass délibéré du score quand il est trop dilué pour réagir seul.</p>
+        </div>
+      </div>
+
+      <p>
+        Ce choix architectural — score ML jamais seul juge — est la réponse directe à une
+        limite mesurée en direct sur ce projet : un signal fort sur une seule dimension parmi
+        16 se dilue trop dans un Isolation Forest pour faire bouger le score de façon fiable
+        (AUC holdout ≈0,69–0,70 sur les scénarios les plus nets). La section
+        <a href="#lifecycle">Cycle de vie du modèle</a> détaille pourquoi, avec des chiffres
+        réels de ce système.
+      </p>
+    </section>
+
+    <!-- ============ ARCHITECTURE ============ -->
+    <section id="architecture">
+      <h2><span class="num">02</span> Architecture &amp; composants</h2>
+      <p class="section-intro">
+        Sept composants, quatre natures différentes. C'est la source d'une confusion fréquente :
+        seul le premier expose une API REST — les trois services ML/comportemental n'ont
+        <em>aucune route HTTP</em>, par conception, pas par oubli.
+      </p>
+
+      <div class="comp-grid">
+        <div class="comp-card">
+          <h4><code>api-gateway</code><span class="type-pill rest">REST</span></h4>
+          <p>FastAPI. Seul point d'entrée public (<code>dmz_net</code> + <code>internal_net</code>). Authentifie, score, autorise, audite chaque requête. Swagger complet sur <code>/docs</code>.</p>
+        </div>
+        <div class="comp-card">
+          <h4><code>policies/</code> (OPA)<span class="type-pill internal">bundle Rego</span></h4>
+          <p>RBAC + adaptive access + MFA, combinés dans <code>authz/decision.rego</code>. Appelé par le gateway sur chaque requête authentifiée, via mTLS.</p>
+        </div>
+        <div class="comp-card">
+          <h4><code>isolation-forest</code><span class="type-pill internal">REST interne</span></h4>
+          <p>A un vrai FastAPI (<code>/score</code>, <code>/health</code>) — mais <code>expose:</code> seul dans docker-compose, jamais publié sur l'hôte, et exige un certificat client mTLS. Invisible depuis un navigateur.</p>
+        </div>
+        <div class="comp-card">
+          <h4><code>ml-trainer</code><span class="type-pill batch">job batch</span></h4>
+          <p>Aucun serveur. <code>docker compose run --rm ml-trainer</code> — entraîne un Isolation Forest, s'arrête. Zéro route HTTP dans son code.</p>
+        </div>
+        <div class="comp-card">
+          <h4><code>canary-validator</code><span class="type-pill batch">job batch</span></h4>
+          <p>Idem — compare un candidat au modèle en production sur du trafic réel, écrit dans <code>canary_validation_log</code>, s'arrête.</p>
+        </div>
+        <div class="comp-card">
+          <h4><code>behavioral-detector</code><span class="type-pill daemon">daemon</span></h4>
+          <p>Process long-running <em>sans serveur HTTP</em> — une boucle (<code>scan; sleep(60)</code>) sur les mêmes fenêtres Redis que le vecteur ML, pour les patterns que le score dilue trop.</p>
+        </div>
+        <div class="comp-card">
+          <h4><code>dashboard</code> (Argus)<span class="type-pill spa">SPA React</span></h4>
+          <p>Ne parle qu'au gateway, depuis le navigateur — jamais aux autres services directement. Sur <code>monitoring_net</code> seul.</p>
+        </div>
+      </div>
+
+      <div class="callout">
+        <strong>Pourquoi ça compte</strong>
+        <p>
+          Demander "où sont les endpoints de <code>canary-validator</code>" revient à demander
+          où sont les endpoints d'un script cron — la question part d'une hypothèse (tout
+          composant expose une API) qui ne tient pas ici. Le Swagger du gateway est le seul qui
+          puisse exister dans ce projet ; les trois autres composants ML se lisent dans leur
+          code source, pas dans un navigateur.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ DECISION PIPELINE ============ -->
+    <section id="pipeline">
+      <h2><span class="num">03</span> Pipeline de décision</h2>
+      <p class="section-intro">
+        Le mécanisme central : le score ML et les règles indépendantes sont calculés en
+        parallèle, sur les mêmes 16 dimensions de comportement, et convergent dans OPA — jamais
+        l'un à la place de l'autre.
+      </p>
+
+      <figure class="diagram">
+        <svg viewBox="0 0 920 300" role="img" aria-label="Une requête authentifiée traverse le Gateway, qui construit un vecteur de 16 features depuis Redis ; ce vecteur est envoyé à la fois à Isolation Forest pour un score de risque et, avec les règles RBAC/adaptatives, à OPA ; OPA combine score et règles indépendantes pour rendre une décision ALLOW, DENY ou STEP_UP, journalisée dans une chaîne de hash.">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor" />
+            </marker>
+          </defs>
+
+          <!-- Client -->
+          <rect x="10" y="120" width="90" height="46" rx="7" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          <text x="55" y="148" text-anchor="middle" font-size="12.5">Client</text>
+
+          <!-- Gateway -->
+          <rect x="150" y="110" width="130" height="66" rx="7" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          <text x="215" y="138" text-anchor="middle" font-size="12.5">Gateway</text>
+          <text x="215" y="154" text-anchor="middle" font-size="10.5" fill="currentColor" opacity="0.65">JWT · rate limit</text>
+
+          <line x1="100" y1="143" x2="146" y2="143" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrow)"/>
+
+          <!-- Feature vector -->
+          <rect x="330" y="110" width="150" height="66" rx="7" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          <text x="405" y="138" text-anchor="middle" font-size="12.5">Vecteur 16-d</text>
+          <text x="405" y="154" text-anchor="middle" font-size="10.5" fill="currentColor" opacity="0.65">fenêtres Redis 5 min</text>
+
+          <line x1="280" y1="143" x2="326" y2="143" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrow)"/>
+
+          <!-- Isolation Forest -->
+          <rect x="530" y="30" width="160" height="60" rx="7" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          <text x="610" y="56" text-anchor="middle" font-size="12.5">Isolation Forest</text>
+          <text x="610" y="72" text-anchor="middle" font-size="10.5" fill="currentColor" opacity="0.65">score() + calibrage</text>
+
+          <path d="M480,120 C500,100 505,80 526,66" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrow)"/>
+          <text x="470" y="98" font-size="10" fill="currentColor" opacity="0.7">score()</text>
+
+          <!-- Rules -->
+          <rect x="530" y="120" width="160" height="60" rx="7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="3 3"/>
+          <text x="610" y="146" text-anchor="middle" font-size="12.5">Règles adaptatives</text>
+          <text x="610" y="162" text-anchor="middle" font-size="10.5" fill="currentColor" opacity="0.65">IPs · énumération · sensible</text>
+
+          <line x1="480" y1="150" x2="526" y2="150" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrow)"/>
+
+          <!-- OPA -->
+          <rect x="750" y="80" width="150" height="90" rx="7" fill="none" stroke="var(--accent)" stroke-width="1.8"/>
+          <text x="825" y="112" text-anchor="middle" font-size="13" font-weight="600" fill="var(--accent)">OPA decision</text>
+          <text x="825" y="130" text-anchor="middle" font-size="10.5" fill="currentColor" opacity="0.65">RBAC + score + règles</text>
+          <text x="825" y="146" text-anchor="middle" font-size="10.5" fill="currentColor" opacity="0.65">ALLOW · DENY · STEP_UP</text>
+
+          <path d="M690,60 C715,70 730,85 748,100" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrow)"/>
+          <text x="700" y="70" font-size="10" fill="currentColor" opacity="0.7">risk_score</text>
+
+          <path d="M690,150 C715,145 730,135 748,125" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrow)"/>
+
+          <!-- Audit log -->
+          <rect x="750" y="220" width="150" height="56" rx="7" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="2 3"/>
+          <text x="825" y="244" text-anchor="middle" font-size="11.5">opa_decision_log</text>
+          <text x="825" y="260" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.65">chaîne SHA-256</text>
+
+          <line x1="825" y1="170" x2="825" y2="216" stroke="currentColor" stroke-width="1.2" stroke-dasharray="2 3" marker-end="url(#arrow)"/>
+          <text x="838" y="196" font-size="10" fill="currentColor" opacity="0.7">écrit toujours</text>
+        </svg>
+        <figcaption>
+          Le score ML (traits pleins) et les règles indépendantes (pointillés) sont calculés
+          <strong>en parallèle</strong> sur le même vecteur — jamais l'un à la place de l'autre.
+          Toute décision est journalisée, y compris un deny.
+        </figcaption>
+      </figure>
+
+      <h3>Décisions possibles</h3>
+      <ul>
+        <li><span class="badge allow">ALLOW</span> — la requête atteint le handler.</li>
+        <li><span class="badge step-up">STEP_UP</span> — <code>401</code>, un TOTP frais est exigé (<code>POST /mfa/challenge/verify</code>).</li>
+        <li><span class="badge deny">DENY</span> — <code>403 {"detail": "access denied"}</code>. Le motif exact (<code>policy_name</code>) n'existe que dans le journal, jamais dans la réponse au client.</li>
+      </ul>
+    </section>
+
+    <!-- ============ SECURITY ============ -->
+    <section id="rbac">
+      <h2><span class="num">04</span> RBAC via OPA</h2>
+      <p class="section-intro">Trois rôles, la politique vit entièrement dans <code>policies/authz/rbac.rego</code> — jamais dans le code Python.</p>
+      <div class="table-wrap">
+        <table class="data">
+          <thead><tr><th>Rôle</th><th>Read</th><th>Create / Update</th><th>Delete</th><th><code>/users</code>, <code>/monitoring/*</code></th></tr></thead>
+          <tbody>
+            <tr><td>reader</td><td class="wrap">✓</td><td class="wrap">—</td><td class="wrap">—</td><td class="wrap">—</td></tr>
+            <tr><td>editor</td><td class="wrap">✓</td><td class="wrap">✓</td><td class="wrap">—</td><td class="wrap">—</td></tr>
+            <tr><td>admin</td><td class="wrap">✓</td><td class="wrap">✓</td><td class="wrap">✓</td><td class="wrap">✓ (admin-only, même en lecture)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="adaptive">
+      <h2><span class="num">05</span> MFA adaptatif — indépendant du score</h2>
+      <p class="section-intro">
+        Trois mécanismes déclenchent un step-up ou un deny <strong>sans jamais dépendre</strong>
+        du score ML, ni de son absence (bootstrap) : <code>policies/risk/adaptive_access.rego</code>.
+      </p>
+      <div class="table-wrap">
+        <table class="data">
+          <thead><tr><th>Règle</th><th>Signal</th><th>Seuil</th><th>Effet</th></tr></thead>
+          <tbody>
+            <tr><td>IPs distinctes</td><td class="wrap"><code>feature_vector[13]</code></td><td class="num">≥ 2</td><td class="wrap"><span class="badge step-up">STEP_UP</span></td></tr>
+            <tr><td>Ressources distinctes</td><td class="wrap"><code>feature_vector[7]</code></td><td class="num">≥ 15</td><td class="wrap"><span class="badge step-up">STEP_UP</span></td></tr>
+            <tr><td>Énumération critique</td><td class="wrap">idem + intervalle ≤5s</td><td class="num">≥ 26</td><td class="wrap"><span class="badge deny">DENY</span> — terminal, non rattrapable par MFA</td></tr>
+            <tr><td>Action sensible</td><td class="wrap"><code>delete</code>, ou <code>create</code>/<code>update</code> sur <code>/users</code></td><td class="num">—</td><td class="wrap"><span class="badge step-up">STEP_UP</span> — même sur un score bas</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Vérifié en direct sur ce système : la règle d'énumération critique a produit
+        <strong>198</strong> décisions <code>risk_enumeration_deny</code> réelles dans
+        <code>opa_decision_log</code>.
+      </p>
+    </section>
+
+    <section id="audit">
+      <h2><span class="num">06</span> Journal d'audit inviolable</h2>
+      <p class="section-intro">
+        Chaque ligne de <code>opa_decision_log</code> est chaînée par SHA-256 à la précédente
+        (<code>app/core/audit_hash_chain.py</code>) — modifier un seul champ, sur une seule
+        ligne, casse la chaîne à partir de ce point.
+      </p>
+      <pre><code>poetry run python scripts/verify_audit_integrity.py
+&gt; OK: 76388 rows verified, chain intact from genesis to tail
+# ou, si une ligne a été altérée :
+&gt; AUDIT TRAIL INTEGRITY BROKEN at opa_decision_log.id=60962:
+&gt;   row_hash does not match the recomputed hash</code></pre>
+      <p>Script en lecture seule — sûr à lancer à tout moment, y compris pendant une démo, sans rien modifier.</p>
+    </section>
+
+    <!-- ============ ML ============ -->
+    <section id="features">
+      <h2><span class="num">07</span> Vecteur de features (16 dimensions)</h2>
+      <p class="section-intro">
+        Construit par le Gateway à chaque requête authentifiée, depuis des compteurs Redis à
+        fenêtre glissante de 5 minutes — <strong>avant</strong> que la requête courante ne soit
+        elle-même enregistrée, pour qu'elle ne s'influence jamais elle-même.
+      </p>
+      <div class="table-wrap">
+        <table class="data">
+          <thead><tr><th>#</th><th>Dimension</th><th>Fenêtre</th></tr></thead>
+          <tbody>
+            <tr><td class="num">0–4</td><td class="wrap">Méthode HTTP (one-hot)</td><td class="wrap">instantané</td></tr>
+            <tr><td class="num">5</td><td class="wrap">Nombre de requêtes</td><td class="wrap">1 min</td></tr>
+            <tr><td class="num">6 / 7</td><td class="wrap">Routes / ressources distinctes</td><td class="wrap">5 min</td></tr>
+            <tr><td class="num">8 / 9</td><td class="wrap">Intervalle inter-requêtes (moy./écart-type)</td><td class="wrap">5 min</td></tr>
+            <tr><td class="num">10</td><td class="wrap">Méthodes distinctes</td><td class="wrap">5 min</td></tr>
+            <tr><td class="num">11</td><td class="wrap">Ratio lecture/écriture</td><td class="wrap">5 min</td></tr>
+            <tr><td class="num">12</td><td class="wrap">Nombre de DENY récents</td><td class="wrap">5 min</td></tr>
+            <tr><td class="num">13</td><td class="wrap">IPs distinctes</td><td class="wrap">5 min</td></tr>
+            <tr><td class="num">14</td><td class="wrap">Échecs d'authentification (par IP)</td><td class="wrap">5 min</td></tr>
+            <tr><td class="num">15</td><td class="wrap">Latence de la requête</td><td class="wrap">instantané</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Score final : <code>score_samples()</code> (Isolation Forest, non supervisé) → sigmoïde
+        bornée [0,1] → <strong>rang percentile</strong> dans un batch de calibration
+        (<code>canary-validator</code>) — parce que la sigmoïde brute se regroupe trop fort sur
+        ce trafic réel (~0,55–0,66) pour séparer normal et anormal.
+      </p>
+    </section>
+
+    <section id="lifecycle">
+      <h2><span class="num">08</span> Cycle de vie du modèle</h2>
+      <p class="section-intro">
+        Aucun modèle ne devient actif sans calibration <em>et</em> validation humaine — même le
+        modèle ML lui-même suit une gouvernance explicite, pas juste les décisions qu'il produit.
+      </p>
+
+      <figure class="diagram">
+        <svg viewBox="0 0 940 170" role="img" aria-label="ml-trainer entraîne un candidat depuis les échantillons d'entraînement, canary-validator le compare au modèle en production sur du trafic réel, un humain confirme ou rejette la comparaison dans le dashboard, puis promote_model.py active le modèle validé, que isolation-forest recharge en 30 secondes.">
+          <defs>
+            <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor" />
+            </marker>
+          </defs>
+
+          <rect x="0" y="55" width="140" height="60" rx="7" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          <text x="70" y="82" text-anchor="middle" font-size="12">ml-trainer</text>
+          <text x="70" y="98" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.65">batch, sur demande</text>
+
+          <line x1="140" y1="85" x2="182" y2="85" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrow2)"/>
+          <text x="161" y="76" text-anchor="middle" font-size="9.5" fill="currentColor" opacity="0.7">candidat</text>
+
+          <rect x="186" y="55" width="150" height="60" rx="7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="3 3"/>
+          <text x="261" y="82" text-anchor="middle" font-size="12">canary-validator</text>
+          <text x="261" y="98" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.65">vs modèle actif</text>
+
+          <line x1="336" y1="85" x2="378" y2="85" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrow2)"/>
+          <text x="357" y="76" text-anchor="middle" font-size="9.5" fill="currentColor" opacity="0.7">pending</text>
+
+          <rect x="382" y="45" width="160" height="80" rx="7" fill="none" stroke="var(--accent)" stroke-width="1.8"/>
+          <text x="462" y="76" text-anchor="middle" font-size="12" font-weight="600" fill="var(--accent)">Révision humaine</text>
+          <text x="462" y="92" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.65">dashboard · Confirm/Reject</text>
+          <text x="462" y="108" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.65">reviewed_by tracé</text>
+
+          <line x1="542" y1="85" x2="584" y2="85" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrow2)"/>
+          <text x="563" y="76" text-anchor="middle" font-size="9.5" fill="currentColor" opacity="0.7">confirmed</text>
+
+          <rect x="588" y="55" width="160" height="60" rx="7" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          <text x="668" y="82" text-anchor="middle" font-size="12">promote_model.py</text>
+          <text x="668" y="98" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.65">acte humain, jamais auto</text>
+
+          <line x1="748" y1="85" x2="790" y2="85" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrow2)"/>
+
+          <rect x="794" y="55" width="146" height="60" rx="7" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          <text x="867" y="78" text-anchor="middle" font-size="12">Modèle actif</text>
+          <text x="867" y="94" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.65">poll 30s, hot-swap</text>
+          <text x="867" y="108" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.65">isolation-forest</text>
+        </svg>
+        <figcaption>
+          Chaque flèche est une étape séparée, déclenchée manuellement — rien n'avance seul
+          d'une case à l'autre.
+        </figcaption>
+      </figure>
+    </section>
+
+    <!-- ============ LIVE STATE ============ -->
+    <section id="state">
+      <h2><span class="num">09</span> État live vérifié</h2>
+      <p class="section-intro">
+        Ce système a été réellement exercé de bout en bout, pas seulement conçu sur le papier.
+        Journal des vérifications effectuées en direct sur la stack.
+      </p>
+      <div class="table-wrap">
+        <table class="data">
+          <thead><tr><th>Vérification</th><th>Résultat</th><th>Preuve</th></tr></thead>
+          <tbody>
+            <tr><td>Chaîne d'audit</td><td class="wrap"><span class="badge allow">intacte</span></td><td class="wrap num">76 388 lignes vérifiées, genèse → tête</td></tr>
+            <tr><td>Modèle <code>v1</code></td><td class="wrap">bootstrap initial</td><td class="wrap num">5 358 échantillons, AUC holdout 0,675</td></tr>
+            <tr><td>Modèle <code>v2</code></td><td class="wrap"><span class="badge allow">actif en production</span></td><td class="wrap num">seuil 0,980 · AUC 0,694</td></tr>
+            <tr><td>Modèle <code>v4</code></td><td class="wrap"><span class="badge step-up">candidat, pending review</span></td><td class="wrap num">129 comparaisons canary vs v2</td></tr>
+            <tr><td>Scoring live</td><td class="wrap"><span class="badge allow">confirmé</span></td><td class="wrap num">requête réelle → risk_score=0,3, model_version=v2</td></tr>
+            <tr><td>Détection d'énumération</td><td class="wrap"><span class="badge deny">confirmée</span></td><td class="wrap num">198 <code>risk_enumeration_deny</code> historiques</td></tr>
+            <tr><td>API documentée</td><td class="wrap"><span class="badge allow">21 routes</span></td><td class="wrap num">schémas de réponse réels, 6 modules</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ EXPLORE ============ -->
+    <section id="explore">
+      <h2><span class="num">10</span> Explorer par soi-même</h2>
+      <p class="section-intro">Trois points d'entrée pour une consultation indépendante, sans avoir besoin de repasser par l'étudiant.</p>
+
+      <div class="cta-row">
+        <a class="cta primary" href="http://localhost:8000/docs">Swagger — API du gateway <span class="arrow">→</span></a>
+        <a class="cta" href="http://localhost:5173">Dashboard Argus <span class="arrow">→</span></a>
+      </div>
+
+      <h3>Santé de la stack</h3>
+      <pre><code>docker compose -f docker/docker-compose.yml ps</code></pre>
+
+      <h3>Documents du dépôt utiles pour l'évaluation</h3>
+      <ul>
+        <li><code>CLAUDE.md</code> — référence technique exhaustive, historique des décisions d'architecture.</li>
+        <li><code>SECURITY.md</code> — incidents trouvés et corrigés en direct pendant l'audit du projet.</li>
+        <li><code>Demo/DEMO_GUIDE.md</code> et <code>demo.md</code> — scénarios de démonstration, chaque commande vérifiée en direct contre le code et la stack réelle.</li>
+        <li><code>policies/</code> — la politique OPA elle-même, en Rego, avec sa propre suite de tests (<code>opa test policies/ -v</code>).</li>
+      </ul>
+    </section>
+
+    <!-- ============ LIMITS ============ -->
+    <section id="limits">
+      <h2><span class="num">11</span> Limites assumées</h2>
+      <p class="section-intro">Documentées volontairement, pas cachées.</p>
+      <ul>
+        <li><strong>Population d'entraînement</strong> — <code>ml_training_samples</code> est intégralement produit par les comptes de démo seedés du projet, pas par de vrais utilisateurs externes ; les seuils empiriques sont valides dans cet environnement, pas garantis transférables à une population réelle.</li>
+        <li><strong>Modèle jeune</strong> — deux cycles d'entraînement/calibration seulement, AUC holdout ≈0,69–0,70 sur les scénarios les plus nets. C'est précisément pour ça que ce score n'est jamais le seul juge (voir <a href="#adaptive">MFA adaptatif</a>).</li>
+        <li><strong>Vault en mode dev</strong> — stockage en mémoire, régénéré à chaque redémarrage de la stack ; adapté à ce projet, pas à une mise en production telle quelle.</li>
+        <li><strong>Portée mTLS volontairement restreinte</strong> — Gateway↔OPA et Gateway↔Isolation Forest uniquement ; Vault lui-même reste en HTTP simple.</li>
+      </ul>
+    </section>
+
+    <footer class="page-footer">
+      ZT_project — documentation générée pour revue technique. Chaque affirmation de ce document
+      est sourcée dans le code du dépôt ou dans un état vérifié en direct contre la stack.
+    </footer>
+  </main>
+</div>

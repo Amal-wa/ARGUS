@@ -1,0 +1,367 @@
+2026-08-21 09:13:10,153 INFO httpx: HTTP Request: GET http://localhost:8000/health "HTTP/1.1 200 OK"
+2026-08-21 09:13:10,569 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:11,048 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 401 Unauthorized"
+2026-08-21 09:13:11,126 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 401 Unauthorized"
+2026-08-21 09:13:11,536 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:11,630 INFO httpx: HTTP Request: GET http://localhost:8000/documents?limit=1000 "HTTP/1.1 200 OK"
+2026-08-21 09:13:11,678 INFO httpx: HTTP Request: GET http://localhost:8000/orders?limit=1000 "HTTP/1.1 200 OK"
+2026-08-21 09:13:22,179 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:22,183 INFO generator.behaviors: reader6@zt.local (reader) logged in, ip=10.10.0.6, mean_interval=224.5s, document_ratio=0.53
+2026-08-21 09:13:22,197 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:22,210 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:22,211 INFO generator.behaviors: reader8@zt.local (reader) logged in, ip=10.10.0.8, mean_interval=300.0s, document_ratio=0.69
+2026-08-21 09:13:22,216 INFO generator.behaviors: reader3@zt.local (reader) logged in, ip=10.10.0.3, mean_interval=141.4s, document_ratio=0.68
+2026-08-21 09:13:22,227 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:22,235 INFO generator.behaviors: reader11@zt.local (reader) logged in, ip=10.10.0.11, mean_interval=106.8s, document_ratio=0.60
+2026-08-21 09:13:22,295 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:22,298 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:22,300 INFO generator.behaviors: editor3@zt.local (editor) logged in, ip=10.10.0.18, mean_interval=92.3s, document_ratio=0.70
+2026-08-21 09:13:22,302 INFO generator.behaviors: reader10@zt.local (reader) logged in, ip=10.10.0.10, mean_interval=168.8s, document_ratio=0.60
+2026-08-21 09:13:22,304 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:22,305 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:22,305 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:22,307 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:22,308 INFO generator.behaviors: reader14@zt.local (reader) logged in, ip=10.10.0.14, mean_interval=107.2s, document_ratio=0.72
+2026-08-21 09:13:22,309 INFO generator.behaviors: editor2@zt.local (editor) logged in, ip=10.10.0.17, mean_interval=80.6s, document_ratio=0.66
+2026-08-21 09:13:22,310 INFO generator.behaviors: admin2@zt.local (admin) logged in, ip=10.10.0.25, mean_interval=183.7s, document_ratio=0.69
+2026-08-21 09:13:22,310 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:22,311 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:22,311 INFO generator.behaviors: reader1@zt.local (reader) logged in, ip=10.10.0.1, mean_interval=161.7s, document_ratio=0.58
+2026-08-21 09:13:22,312 INFO generator.behaviors: reader15@zt.local (reader) logged in, ip=10.10.0.15, mean_interval=165.4s, document_ratio=0.77
+2026-08-21 09:13:22,312 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:22,313 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:22,313 INFO generator.behaviors: editor1@zt.local (editor) logged in, ip=10.10.0.16, mean_interval=95.7s, document_ratio=0.81
+2026-08-21 09:13:22,314 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:22,314 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:22,315 INFO generator.behaviors: reader4@zt.local (reader) logged in, ip=10.10.0.4, mean_interval=180.9s, document_ratio=0.71
+2026-08-21 09:13:22,315 INFO generator.behaviors: reader12@zt.local (reader) logged in, ip=10.10.0.12, mean_interval=168.7s, document_ratio=0.57
+2026-08-21 09:13:22,315 INFO generator.behaviors: admin1@zt.local (admin) logged in, ip=10.10.0.24, mean_interval=148.5s, document_ratio=0.60
+2026-08-21 09:13:22,315 INFO generator.behaviors: editor7@zt.local (editor) logged in, ip=10.10.0.22, mean_interval=140.9s, document_ratio=0.54
+2026-08-21 09:13:22,319 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:22,320 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:22,321 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:22,322 INFO generator.behaviors: reader2@zt.local (reader) logged in, ip=10.10.0.2, mean_interval=230.3s, document_ratio=0.53
+2026-08-21 09:13:22,322 INFO generator.behaviors: editor4@zt.local (editor) logged in, ip=10.10.0.19, mean_interval=165.7s, document_ratio=0.68
+2026-08-21 09:13:22,322 INFO generator.behaviors: reader7@zt.local (reader) logged in, ip=10.10.0.7, mean_interval=251.3s, document_ratio=0.76
+2026-08-21 09:13:22,323 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:22,325 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:22,325 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:22,326 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:22,327 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:22,328 INFO httpx: HTTP Request: POST http://localhost:8000/auth/login "HTTP/1.1 200 OK"
+2026-08-21 09:13:22,328 INFO generator.behaviors: editor5@zt.local (editor) logged in, ip=10.10.0.20, mean_interval=75.0s, document_ratio=0.52
+2026-08-21 09:13:22,328 INFO generator.behaviors: reader5@zt.local (reader) logged in, ip=10.10.0.5, mean_interval=272.7s, document_ratio=0.55
+2026-08-21 09:13:22,328 INFO generator.behaviors: editor8@zt.local (editor) logged in, ip=10.10.0.23, mean_interval=103.6s, document_ratio=0.59
+2026-08-21 09:13:22,329 INFO generator.behaviors: editor6@zt.local (editor) logged in, ip=10.10.0.21, mean_interval=203.7s, document_ratio=0.75
+2026-08-21 09:13:22,329 INFO generator.behaviors: reader13@zt.local (reader) logged in, ip=10.10.0.13, mean_interval=186.3s, document_ratio=0.76
+2026-08-21 09:13:22,329 INFO generator.behaviors: reader9@zt.local (reader) logged in, ip=10.10.0.9, mean_interval=249.3s, document_ratio=0.70
+2026-08-21 09:13:22,777 WARNING generator.attacks: [ATTACK START 2026-08-21T08:13:22.777042+00:00] A-resource-enumeration {'actor': 'reader8@zt.local', 'ip': '10.10.0.8', 'requests_per_minute': 80}
+2026-08-21 09:13:22,888 INFO httpx: HTTP Request: GET http://localhost:8000/documents/3759bb8d-6765-4fa9-bd87-df7f19a516f6 "HTTP/1.1 200 OK"
+2026-08-21 09:13:23,861 INFO httpx: HTTP Request: GET http://localhost:8000/documents/d6853453-9fc0-4f5b-8c63-645fb25467e3 "HTTP/1.1 200 OK"
+2026-08-21 09:13:24,717 INFO httpx: HTTP Request: GET http://localhost:8000/documents/4c9ef80f-06de-4163-ac76-34ad12d3bb2f "HTTP/1.1 200 OK"
+2026-08-21 09:13:25,451 INFO httpx: HTTP Request: GET http://localhost:8000/documents/0d28b670-9037-421b-b13e-e423a6d7680a "HTTP/1.1 200 OK"
+2026-08-21 09:13:25,889 INFO httpx: HTTP Request: GET http://localhost:8000/documents/1a3b7b7b-bffe-4ba0-825c-17f6310c11c6 "HTTP/1.1 200 OK"
+2026-08-21 09:13:26,783 INFO httpx: HTTP Request: GET http://localhost:8000/documents/943cfb53-2f5b-4edb-b884-8a3fbd2b2436 "HTTP/1.1 200 OK"
+2026-08-21 09:13:27,557 INFO httpx: HTTP Request: GET http://localhost:8000/documents/8d569946-c3a3-43ca-bbe7-7049f5b1bf8d "HTTP/1.1 200 OK"
+2026-08-21 09:13:28,181 INFO httpx: HTTP Request: GET http://localhost:8000/documents/6c454a93-9986-4262-a496-178a531b26dc "HTTP/1.1 200 OK"
+2026-08-21 09:13:28,268 INFO httpx: HTTP Request: GET http://localhost:8000/documents/6bc3042d-7099-456f-b3bb-0fc09f9cb96c "HTTP/1.1 200 OK"
+2026-08-21 09:13:29,516 INFO httpx: HTTP Request: GET http://localhost:8000/documents/a93c204c-db1f-4c78-9cba-d3731811ff0c "HTTP/1.1 200 OK"
+2026-08-21 09:13:30,145 INFO httpx: HTTP Request: GET http://localhost:8000/documents/53c560ee-f3df-4b15-ad52-44244c28333e "HTTP/1.1 200 OK"
+2026-08-21 09:13:30,991 INFO httpx: HTTP Request: GET http://localhost:8000/documents/cf2ddccf-5def-4507-ab3d-5a79b6756802 "HTTP/1.1 200 OK"
+2026-08-21 09:13:32,141 INFO httpx: HTTP Request: GET http://localhost:8000/documents/792ac274-a733-44e2-b5a8-910374250e19 "HTTP/1.1 200 OK"
+2026-08-21 09:13:32,588 INFO httpx: HTTP Request: GET http://localhost:8000/documents/ee04994b-71c8-4649-8e3c-ae3c237be681 "HTTP/1.1 200 OK"
+2026-08-21 09:13:33,085 INFO httpx: HTTP Request: GET http://localhost:8000/documents/e1e8b23a-ed72-4dfd-8150-33587cf947e1 "HTTP/1.1 200 OK"
+2026-08-21 09:13:33,920 INFO httpx: HTTP Request: GET http://localhost:8000/documents/1d6e002f-327e-4fd9-b416-16e92dc5f9f3 "HTTP/1.1 401 Unauthorized"
+2026-08-21 09:13:34,287 INFO httpx: HTTP Request: GET http://localhost:8000/documents/ec0ef0a3-23af-42e4-86d8-e6af2e7973ee "HTTP/1.1 401 Unauthorized"
+2026-08-21 09:13:35,707 INFO httpx: HTTP Request: GET http://localhost:8000/documents/a15f7429-de75-4d48-b049-adfbc289900f "HTTP/1.1 401 Unauthorized"
+2026-08-21 09:13:36,726 INFO httpx: HTTP Request: GET http://localhost:8000/documents/6d2de087-f425-422e-829a-84a5169b1c5e "HTTP/1.1 401 Unauthorized"
+2026-08-21 09:13:37,706 INFO httpx: HTTP Request: GET http://localhost:8000/documents/ea96763c-3150-4b32-a2ab-d788ac0eea1e "HTTP/1.1 401 Unauthorized"
+2026-08-21 09:13:38,552 INFO httpx: HTTP Request: GET http://localhost:8000/documents/f8577fb7-3832-48aa-8bf1-9bfab1a2c77b "HTTP/1.1 401 Unauthorized"
+2026-08-21 09:13:39,158 INFO httpx: HTTP Request: GET http://localhost:8000/documents/37d04266-88c8-4bc1-a483-56f95ac3d0fd "HTTP/1.1 401 Unauthorized"
+2026-08-21 09:13:39,684 INFO httpx: HTTP Request: GET http://localhost:8000/documents/0f959256-a0ae-40ab-8751-4563aaf5747c "HTTP/1.1 401 Unauthorized"
+2026-08-21 09:13:40,288 INFO httpx: HTTP Request: GET http://localhost:8000/documents/658596f9-a6ad-48bb-9eea-33f97fc0545f "HTTP/1.1 401 Unauthorized"
+2026-08-21 09:13:41,055 INFO httpx: HTTP Request: GET http://localhost:8000/documents/8ef2fd17-104a-4a4d-a9c9-a44bcc7af21f "HTTP/1.1 401 Unauthorized"
+2026-08-21 09:13:41,518 INFO httpx: HTTP Request: GET http://localhost:8000/orders/f8a6a72e-44f0-49ca-878e-46c59fad592a "HTTP/1.1 200 OK"
+2026-08-21 09:13:42,365 INFO httpx: HTTP Request: POST http://localhost:8000/documents "HTTP/1.1 201 Created"
+2026-08-21 09:13:42,850 INFO httpx: HTTP Request: GET http://localhost:8000/documents/9918f8c1-e8c9-4c89-85a0-5ab9af0b7578 "HTTP/1.1 401 Unauthorized"
+2026-08-21 09:13:43,374 INFO httpx: HTTP Request: GET http://localhost:8000/documents/640b007a-d974-47ce-ab0e-895f0d23e869 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:13:44,539 INFO httpx: HTTP Request: GET http://localhost:8000/documents/9fd50caf-478b-405e-ac94-ce305163f7b2 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:13:45,034 INFO httpx: HTTP Request: GET http://localhost:8000/documents/57b2ab6c-5ee7-4ed0-bab3-bfb0b977601c "HTTP/1.1 403 Forbidden"
+2026-08-21 09:13:45,704 INFO httpx: HTTP Request: GET http://localhost:8000/documents/2b5bc4a5-7995-4bc5-a592-ec7492ee75aa "HTTP/1.1 403 Forbidden"
+2026-08-21 09:13:46,112 INFO httpx: HTTP Request: GET http://localhost:8000/documents/dd27c2bf-2c95-43bc-ba8d-ebc6ba9a9f75 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:13:46,855 INFO httpx: HTTP Request: GET http://localhost:8000/documents/cbe94154-ddf0-43d2-b62a-d31858631cec "HTTP/1.1 403 Forbidden"
+2026-08-21 09:13:48,360 INFO httpx: HTTP Request: GET http://localhost:8000/documents/bae46206-49d9-41d5-9f74-a1fd73be02eb "HTTP/1.1 403 Forbidden"
+2026-08-21 09:13:49,373 INFO httpx: HTTP Request: GET http://localhost:8000/documents/09d6f7c6-dc86-4e7d-a99d-adfa12d59fcc "HTTP/1.1 403 Forbidden"
+2026-08-21 09:13:49,383 INFO httpx: HTTP Request: GET http://localhost:8000/orders/b2c8c3a4-4397-4e71-8f47-f7843314181e "HTTP/1.1 200 OK"
+2026-08-21 09:13:49,946 INFO httpx: HTTP Request: GET http://localhost:8000/documents/d46946a4-8fba-4900-b8f9-cdd0c50ba2a2 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:13:50,739 INFO httpx: HTTP Request: GET http://localhost:8000/documents/27fde440-d60f-4ee8-8ac2-77f6e4521779 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:13:51,588 INFO httpx: HTTP Request: GET http://localhost:8000/documents/d97b8bdc-1c97-4c80-ac20-1320176af572 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:13:52,571 INFO httpx: HTTP Request: GET http://localhost:8000/documents/da15ef45-30cb-4838-b01b-1c247db65c95 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:13:52,936 INFO httpx: HTTP Request: GET http://localhost:8000/documents/e63f8fb3-9d2a-4f6f-8f1e-da36c2844f8d "HTTP/1.1 200 OK"
+2026-08-21 09:13:54,176 INFO httpx: HTTP Request: GET http://localhost:8000/documents/877464c7-aa7e-4bb4-937f-af20079f6fb9 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:13:54,961 INFO httpx: HTTP Request: GET http://localhost:8000/documents/cb2fc22c-b70a-4b58-a73c-e65670ea2a1a "HTTP/1.1 403 Forbidden"
+2026-08-21 09:13:55,596 INFO httpx: HTTP Request: GET http://localhost:8000/documents/d22e7160-8161-47a1-b414-4f72a1213528 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:13:57,061 INFO httpx: HTTP Request: GET http://localhost:8000/documents/a74d955d-f0b8-4a8b-963d-1b9f000290b7 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:13:57,639 INFO httpx: HTTP Request: GET http://localhost:8000/documents/1d391c2f-7653-431e-83d3-4a18e4944fbd "HTTP/1.1 403 Forbidden"
+2026-08-21 09:13:58,511 INFO httpx: HTTP Request: GET http://localhost:8000/documents/9a2b8456-caf6-45c1-9c36-15ad0ea1773d "HTTP/1.1 403 Forbidden"
+2026-08-21 09:13:59,209 INFO httpx: HTTP Request: GET http://localhost:8000/documents/79cf8e79-ad5f-411b-a3b9-8a27209c2b99 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:00,076 INFO httpx: HTTP Request: GET http://localhost:8000/documents/d03f941a-0d29-49bb-ba52-1958f9a4933f "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:00,388 INFO httpx: HTTP Request: GET http://localhost:8000/documents/bbe486da-b97d-4a0e-80fa-2c11c69b5952 "HTTP/1.1 200 OK"
+2026-08-21 09:14:00,780 INFO httpx: HTTP Request: GET http://localhost:8000/documents/72b97400-72c7-4bd4-ae8e-817c134c70ab "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:01,555 INFO httpx: HTTP Request: GET http://localhost:8000/documents/1f6aff50-7963-424c-a820-866ad9caf2ac "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:02,765 INFO httpx: HTTP Request: GET http://localhost:8000/documents/f8577fb7-3832-48aa-8bf1-9bfab1a2c77b "HTTP/1.1 200 OK"
+2026-08-21 09:14:02,995 INFO httpx: HTTP Request: GET http://localhost:8000/documents/92beceae-a7cd-46f1-a4a8-f0af975c4d22 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:03,300 INFO httpx: HTTP Request: GET http://localhost:8000/documents/562340f1-355e-4673-8af2-2905132a138e "HTTP/1.1 200 OK"
+2026-08-21 09:14:03,651 INFO httpx: HTTP Request: GET http://localhost:8000/documents/e8af1c70-e529-4d27-b206-d03ecf2433ae "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:04,441 INFO httpx: HTTP Request: GET http://localhost:8000/documents/25b490e5-291b-4706-beb0-782b8c9f6183 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:04,976 INFO httpx: HTTP Request: GET http://localhost:8000/documents/94e1d39d-31ca-49ac-9d9b-72c98da16e3d "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:05,773 INFO httpx: HTTP Request: GET http://localhost:8000/documents/9e446ce9-a1f1-40de-b594-417c0ac5767a "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:06,332 INFO httpx: HTTP Request: GET http://localhost:8000/documents/5bdd909d-4bc5-4017-94c4-7c98f906fa2a "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:06,820 INFO httpx: HTTP Request: GET http://localhost:8000/documents/7910ddd0-3d5a-4075-aa69-d9e75a5ab3b5 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:07,241 INFO httpx: HTTP Request: GET http://localhost:8000/documents/847ac164-720b-4dd1-b645-e3ce8f77a105 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:07,770 INFO httpx: HTTP Request: GET http://localhost:8000/documents/6bea478d-3139-4a51-89b0-b3c844b564cb "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:07,935 INFO httpx: HTTP Request: GET http://localhost:8000/documents/e63f8fb3-9d2a-4f6f-8f1e-da36c2844f8d "HTTP/1.1 200 OK"
+2026-08-21 09:14:08,278 INFO httpx: HTTP Request: GET http://localhost:8000/documents/ccacc1bf-033b-4c18-8507-488a2b239056 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:09,918 INFO httpx: HTTP Request: GET http://localhost:8000/documents/831ad1c9-e3bf-46f1-9832-ea632181310c "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:11,342 INFO httpx: HTTP Request: GET http://localhost:8000/documents/2bb584e2-8d1c-41f4-9f21-dc2804067aaf "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:11,577 INFO httpx: HTTP Request: GET http://localhost:8000/documents/d46946a4-8fba-4900-b8f9-cdd0c50ba2a2 "HTTP/1.1 200 OK"
+2026-08-21 09:14:11,978 INFO httpx: HTTP Request: GET http://localhost:8000/documents/98a42eca-e474-4005-9045-d02542f752da "HTTP/1.1 200 OK"
+2026-08-21 09:14:12,734 INFO httpx: HTTP Request: GET http://localhost:8000/documents/e45be0f2-48ab-464d-93bd-32f4c63cb6ef "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:13,133 INFO httpx: HTTP Request: GET http://localhost:8000/documents/e6deedbd-b43f-4fd3-9fdd-c62fc16265dd "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:13,947 INFO httpx: HTTP Request: GET http://localhost:8000/documents/2ce28d2f-866d-499a-a4cd-8ebcf323d3bd "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:14,550 INFO httpx: HTTP Request: GET http://localhost:8000/documents/6e57ccf2-5fa3-49cd-9c29-90d782da08f9 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:15,504 INFO httpx: HTTP Request: GET http://localhost:8000/documents/4f03534c-4469-4761-a88a-a5a0d8a8c197 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:16,729 INFO httpx: HTTP Request: GET http://localhost:8000/documents/e63f8fb3-9d2a-4f6f-8f1e-da36c2844f8d "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:17,876 INFO httpx: HTTP Request: GET http://localhost:8000/documents/98bd31fe-f310-49b4-8a20-73a3b339adef "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:18,741 INFO httpx: HTTP Request: GET http://localhost:8000/documents/01557546-f964-41a6-8d46-123317f986be "HTTP/1.1 200 OK"
+2026-08-21 09:14:18,873 INFO httpx: HTTP Request: GET http://localhost:8000/documents/f3142e77-7d5a-4352-8e5d-7d96bc667bb4 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:19,460 INFO httpx: HTTP Request: GET http://localhost:8000/documents/41f6d68e-87d0-4c22-9b5a-b3d32f7dd6bf "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:20,113 INFO httpx: HTTP Request: GET http://localhost:8000/documents/f20842c5-5cf7-4996-92ec-a6fd20e06b37 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:20,849 INFO httpx: HTTP Request: GET http://localhost:8000/documents/562340f1-355e-4673-8af2-2905132a138e "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:21,235 INFO httpx: HTTP Request: GET http://localhost:8000/orders "HTTP/1.1 200 OK"
+2026-08-21 09:14:21,293 INFO httpx: HTTP Request: GET http://localhost:8000/documents/66908016-e86e-474b-b02b-e8ec4c300fff "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:22,049 INFO httpx: HTTP Request: GET http://localhost:8000/documents/8efcb7e3-dc19-4710-ad6f-9b2569aff9e0 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:22,559 INFO httpx: HTTP Request: GET http://localhost:8000/orders/9a4be4a7-ab4a-4575-9dbd-1007f2701f5b "HTTP/1.1 200 OK"
+2026-08-21 09:14:22,932 INFO httpx: HTTP Request: GET http://localhost:8000/orders/c285e943-f727-4afc-a8c1-817d26b8f76a "HTTP/1.1 200 OK"
+2026-08-21 09:14:23,360 INFO httpx: HTTP Request: GET http://localhost:8000/documents/96a23aef-2cae-4af1-9cfa-1d5e62e6b802 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:24,084 INFO httpx: HTTP Request: GET http://localhost:8000/documents/462f25f2-f8ae-44fd-b445-f8a2d90c8456 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:24,451 INFO httpx: HTTP Request: GET http://localhost:8000/documents/3a1369fe-8c40-4273-8b60-72f44029d728 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:25,185 INFO httpx: HTTP Request: GET http://localhost:8000/documents/0accc382-9323-4c54-a749-bdeef8c1313e "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:25,815 INFO httpx: HTTP Request: GET http://localhost:8000/documents/279cf202-513b-4b2a-b212-3d952d3d7755 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:26,783 INFO httpx: HTTP Request: GET http://localhost:8000/documents/cead7fde-1e7b-4f6e-a4c9-731d12dde066 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:27,349 INFO httpx: HTTP Request: GET http://localhost:8000/documents/dbe08310-880c-42a0-bede-b95c31db80c4 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:27,889 INFO httpx: HTTP Request: GET http://localhost:8000/documents/d559c7c8-c4aa-4893-b4a6-20cab1ce82ff "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:28,651 INFO httpx: HTTP Request: GET http://localhost:8000/documents/19728db7-d63b-465a-aa34-43fbc6ac7ebf "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:29,358 INFO httpx: HTTP Request: GET http://localhost:8000/documents/7fdbfef6-5eee-46bb-9088-6b579497a890 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:29,549 INFO httpx: HTTP Request: GET http://localhost:8000/documents/dc776dbe-8eb0-4ca1-a7d8-3bf2432d7517 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:29,954 INFO httpx: HTTP Request: GET http://localhost:8000/documents/a74d955d-f0b8-4a8b-963d-1b9f000290b7 "HTTP/1.1 200 OK"
+2026-08-21 09:14:30,370 INFO httpx: HTTP Request: GET http://localhost:8000/documents/826fd885-f9fd-464c-b4bf-dc545877c046 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:31,735 INFO httpx: HTTP Request: GET http://localhost:8000/documents/101acb66-8602-415f-977e-b7725f7b0bf4 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:32,975 INFO httpx: HTTP Request: GET http://localhost:8000/documents/ba5b86d0-c2cb-4fb2-9d27-e672a7c1e096 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:33,575 INFO httpx: HTTP Request: GET http://localhost:8000/documents/dcb4452d-26a8-4768-96c2-7744ab4553d3 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:34,554 INFO httpx: HTTP Request: GET http://localhost:8000/documents/9c579504-cb4e-47ab-81b7-7a22f132e843 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:34,751 INFO httpx: HTTP Request: POST http://localhost:8000/orders "HTTP/1.1 201 Created"
+2026-08-21 09:14:34,932 INFO httpx: HTTP Request: GET http://localhost:8000/documents/705ce2bf-2cf2-4854-a12c-47790bde3af3 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:35,313 INFO httpx: HTTP Request: GET http://localhost:8000/documents/980dae54-e339-4ee7-aa61-b13175a219d8 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:35,768 INFO httpx: HTTP Request: GET http://localhost:8000/documents/7522b66d-f585-4673-a38d-c62d13df0f17 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:36,514 INFO httpx: HTTP Request: GET http://localhost:8000/documents/0f5614b8-526d-4742-ac80-4ccf762e24e7 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:37,523 INFO httpx: HTTP Request: GET http://localhost:8000/documents/03a98f4d-afbf-477c-b67a-e65b3e9292df "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:38,267 INFO httpx: HTTP Request: GET http://localhost:8000/documents/ec39ec85-1524-49cc-ae7a-8ce614bc3a2a "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:38,820 INFO httpx: HTTP Request: GET http://localhost:8000/documents/4445d367-f8b3-4298-9712-d2ad443d45bb "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:39,243 INFO httpx: HTTP Request: GET http://localhost:8000/documents/f2bada70-f0f5-40fc-ada8-391f1452c028 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:39,984 INFO httpx: HTTP Request: GET http://localhost:8000/documents/0ffe60fc-de34-46a5-b315-451556dab6f7 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:40,180 INFO httpx: HTTP Request: PUT http://localhost:8000/orders/0071a3f1-e13a-48bc-829a-b0c7904fe2f9 "HTTP/1.1 200 OK"
+2026-08-21 09:14:41,450 INFO httpx: HTTP Request: GET http://localhost:8000/documents/a9c20ed9-7632-4c60-a761-7140a2f44ea5 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:42,058 INFO httpx: HTTP Request: GET http://localhost:8000/documents/cb83ec34-4204-4dc7-856f-384b6fa18391 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:42,149 INFO httpx: HTTP Request: PUT http://localhost:8000/orders/59846eca-06e4-419e-959d-ae7f16fb03e7 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:43,642 INFO httpx: HTTP Request: GET http://localhost:8000/documents/0e836c28-b8e3-40ad-9f17-3edc69b1bb12 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:44,394 INFO httpx: HTTP Request: GET http://localhost:8000/documents/208fc8b7-e54e-42fc-9a6f-b0b4c2715442 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:45,028 INFO httpx: HTTP Request: GET http://localhost:8000/documents/2c7c3618-fac4-4b4e-ba0e-f959ebb41e88 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:46,061 INFO httpx: HTTP Request: GET http://localhost:8000/documents/05fce293-6e4b-437e-bbc4-68e720c13dd6 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:46,116 INFO httpx: HTTP Request: GET http://localhost:8000/documents/3ec16071-b310-447d-8ddc-118ce410a15c "HTTP/1.1 200 OK"
+2026-08-21 09:14:46,439 INFO httpx: HTTP Request: GET http://localhost:8000/documents/69acf323-90ed-4ca7-8ddc-65524ceffae0 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:47,220 INFO httpx: HTTP Request: GET http://localhost:8000/documents/50b0cbfd-d6ff-4ea6-beb6-6f5b36661610 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:47,658 INFO httpx: HTTP Request: GET http://localhost:8000/documents/8bef8a29-527a-4723-8aac-7d6c1e093e12 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:48,028 INFO httpx: HTTP Request: GET http://localhost:8000/documents/0cd1392f-2e68-4b3a-a690-8252a726c2cc "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:48,738 INFO httpx: HTTP Request: GET http://localhost:8000/documents/2cbcb454-2d94-461c-9c67-494ef2645177 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:49,424 INFO httpx: HTTP Request: GET http://localhost:8000/documents/451bf861-88e0-43ee-a56f-0d51430ec34b "HTTP/1.1 200 OK"
+2026-08-21 09:14:49,750 INFO httpx: HTTP Request: GET http://localhost:8000/documents/310e3776-b830-46fe-a7fc-ddbd1e770a4d "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:50,389 INFO httpx: HTTP Request: GET http://localhost:8000/documents/251aa5b7-4b00-4b9a-890f-f06b92ce0f26 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:51,163 INFO httpx: HTTP Request: GET http://localhost:8000/documents/57b2ab6c-5ee7-4ed0-bab3-bfb0b977601c "HTTP/1.1 200 OK"
+2026-08-21 09:14:51,310 INFO httpx: HTTP Request: GET http://localhost:8000/documents/fb101acd-9abf-41f3-9703-72d611375b8d "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:51,799 INFO httpx: HTTP Request: GET http://localhost:8000/documents/82f0a319-8805-4537-92b9-87ddbfd49f30 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:52,833 INFO httpx: HTTP Request: GET http://localhost:8000/documents/15ba3216-94ca-4fe3-88ca-1e1340a72a39 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:52,834 INFO httpx: HTTP Request: GET http://localhost:8000/orders/3ab49053-b360-4c87-94f8-666a436a34da "HTTP/1.1 200 OK"
+2026-08-21 09:14:53,437 INFO httpx: HTTP Request: GET http://localhost:8000/orders "HTTP/1.1 200 OK"
+2026-08-21 09:14:53,526 INFO httpx: HTTP Request: GET http://localhost:8000/documents/6abf01e0-b62c-401f-9eed-8bd59e4450d7 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:54,096 INFO httpx: HTTP Request: GET http://localhost:8000/documents/59c272c9-6449-4b4f-b0e7-3eadb151cc51 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:54,836 INFO httpx: HTTP Request: GET http://localhost:8000/documents/8a108190-8b5b-4323-bc20-106303327e82 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:55,307 INFO httpx: HTTP Request: GET http://localhost:8000/documents/9fdbc954-af35-4182-8815-80b0b76f8fce "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:56,405 INFO httpx: HTTP Request: GET http://localhost:8000/orders/925842e0-b3d7-43ac-9512-81de2b62424d "HTTP/1.1 200 OK"
+2026-08-21 09:14:56,452 INFO httpx: HTTP Request: GET http://localhost:8000/documents/65626df0-c0d3-4933-ab3e-eecfee9cc2c1 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:57,333 INFO httpx: HTTP Request: GET http://localhost:8000/documents/8080b243-df2e-457b-a99b-54e6259e82ce "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:57,727 INFO httpx: HTTP Request: GET http://localhost:8000/documents/c80659c8-c3ee-4c58-ad70-d279906e784f "HTTP/1.1 200 OK"
+2026-08-21 09:14:58,157 INFO httpx: HTTP Request: GET http://localhost:8000/documents/99869558-2236-45c0-a5c0-73a354e5d360 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:14:58,710 INFO httpx: HTTP Request: GET http://localhost:8000/documents "HTTP/1.1 200 OK"
+2026-08-21 09:14:59,086 INFO httpx: HTTP Request: GET http://localhost:8000/documents/c9ae76fe-fc78-4c9c-92d3-57c4cc472dfc "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:00,161 INFO httpx: HTTP Request: GET http://localhost:8000/documents/451bf861-88e0-43ee-a56f-0d51430ec34b "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:00,650 INFO httpx: HTTP Request: GET http://localhost:8000/documents/07cb37bf-f497-4fbb-a909-c223ad3024a8 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:01,347 INFO httpx: HTTP Request: GET http://localhost:8000/documents/11e357a5-2905-4969-aac2-bf515d374830 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:01,583 INFO httpx: HTTP Request: GET http://localhost:8000/orders/025e486c-e945-4591-a8f7-865d3d969dd7 "HTTP/1.1 200 OK"
+2026-08-21 09:15:02,225 INFO httpx: HTTP Request: GET http://localhost:8000/documents/ce30316f-6431-49b7-8958-03b1170ef352 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:03,475 INFO httpx: HTTP Request: GET http://localhost:8000/documents/70a3f47a-2feb-4dda-8138-37d3d5fbd6ab "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:04,385 INFO httpx: HTTP Request: GET http://localhost:8000/documents/2d552120-1e86-43af-b7a0-b97181574623 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:05,370 INFO httpx: HTTP Request: GET http://localhost:8000/orders/14af7a70-8736-46c4-8a97-2dfdb9ff9a69 "HTTP/1.1 200 OK"
+2026-08-21 09:15:05,757 INFO httpx: HTTP Request: GET http://localhost:8000/documents/58304511-d105-499d-b16b-3287360b968e "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:06,463 INFO httpx: HTTP Request: POST http://localhost:8000/orders "HTTP/1.1 201 Created"
+2026-08-21 09:15:07,041 INFO httpx: HTTP Request: GET http://localhost:8000/documents/96fad748-7726-432b-a89d-4406845fbdb3 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:07,332 INFO httpx: HTTP Request: GET http://localhost:8000/documents/a3a38b27-00b6-4330-a63d-409a0b026d37 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:08,251 INFO httpx: HTTP Request: GET http://localhost:8000/documents/67480cca-d9db-4633-ab54-3c4b692e16a8 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:08,779 INFO httpx: HTTP Request: GET http://localhost:8000/documents/719ffb35-0813-4dcf-9906-d0e1126589d1 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:09,839 INFO httpx: HTTP Request: GET http://localhost:8000/documents/b7a66aa2-0441-41fb-acea-840869401243 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:10,306 INFO httpx: HTTP Request: GET http://localhost:8000/documents/313c4d2d-ff6d-4cbe-8b9b-8f15c4c402cd "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:10,493 INFO httpx: HTTP Request: GET http://localhost:8000/orders/b3f2e363-1324-4e3e-8263-dfa7742aacab "HTTP/1.1 200 OK"
+2026-08-21 09:15:10,797 INFO httpx: HTTP Request: GET http://localhost:8000/documents/d81e348a-cc08-4415-a934-af38055a0846 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:11,467 INFO httpx: HTTP Request: GET http://localhost:8000/documents/87085a89-2329-4d8d-ad92-36177e83ee77 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:12,427 INFO httpx: HTTP Request: GET http://localhost:8000/documents/eab518d7-fa44-4e40-8695-f97a73a07b0c "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:13,051 INFO httpx: HTTP Request: GET http://localhost:8000/documents/9cd31d8c-baf5-439d-b72f-1ce05c304323 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:13,927 INFO httpx: HTTP Request: GET http://localhost:8000/documents/ec32e67c-1b1f-4677-9dac-8e073de748c5 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:14,551 INFO httpx: HTTP Request: GET http://localhost:8000/documents/6dc103f3-26bb-4f71-a40d-410565b9e42a "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:14,939 INFO httpx: HTTP Request: GET http://localhost:8000/documents/c903e4c6-c525-491e-9dd0-743631080f1c "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:15,301 INFO httpx: HTTP Request: GET http://localhost:8000/documents/9ed1e30e-3392-400a-bb3e-f31517316499 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:16,380 INFO httpx: HTTP Request: GET http://localhost:8000/documents/f8793228-8641-49b2-9337-8c1055138732 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:16,954 INFO httpx: HTTP Request: GET http://localhost:8000/documents/16761f2a-1bb9-4cb4-87df-b5b7dd36cc93 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:17,586 INFO httpx: HTTP Request: GET http://localhost:8000/documents/570d8ecb-04d4-4256-860e-a45e68adcfef "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:18,328 INFO httpx: HTTP Request: GET http://localhost:8000/documents/675654ff-e9ef-418e-9c5c-69ed0d5ead27 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:19,089 INFO httpx: HTTP Request: GET http://localhost:8000/documents/e06a2419-df25-4084-9f70-20bda944357b "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:19,521 INFO httpx: HTTP Request: GET http://localhost:8000/documents/aa7da9a4-c855-4369-8d1e-e379e3053a0c "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:20,362 INFO httpx: HTTP Request: GET http://localhost:8000/documents/244ca9fc-eff0-4ec6-afb2-f7bc08008888 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:21,322 INFO httpx: HTTP Request: GET http://localhost:8000/documents/c89aa51a-9383-46f0-bbfc-4d0aab9b9a2b "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:21,806 INFO httpx: HTTP Request: GET http://localhost:8000/documents/640b007a-d974-47ce-ab0e-895f0d23e869 "HTTP/1.1 200 OK"
+2026-08-21 09:15:22,221 INFO httpx: HTTP Request: GET http://localhost:8000/documents/b04add40-cd7b-453d-8701-d68f6976950f "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:22,910 INFO httpx: HTTP Request: GET http://localhost:8000/documents/f043413d-600f-4a29-8bc7-a84b98862435 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:23,524 INFO httpx: HTTP Request: GET http://localhost:8000/documents/f652eacb-a705-4d0f-800f-9822d8d447bd "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:24,389 INFO httpx: HTTP Request: GET http://localhost:8000/documents/b2cc2b82-8b70-4eb8-aee8-b6b126b7d4ae "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:25,109 INFO httpx: HTTP Request: GET http://localhost:8000/documents/215705c6-7492-4e91-9b20-0f1d00c30a59 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:25,574 INFO httpx: HTTP Request: GET http://localhost:8000/documents/30d46e1d-73c1-4170-ab5f-110734a6f870 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:25,938 INFO httpx: HTTP Request: GET http://localhost:8000/documents/2bb584e2-8d1c-41f4-9f21-dc2804067aaf "HTTP/1.1 200 OK"
+2026-08-21 09:15:26,111 INFO httpx: HTTP Request: GET http://localhost:8000/documents/f62e3acd-0101-474d-8e18-d3815c0129ca "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:27,140 INFO httpx: HTTP Request: GET http://localhost:8000/documents/abc32d6f-4abe-4151-9f42-3ffc76264c5a "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:28,236 INFO httpx: HTTP Request: GET http://localhost:8000/documents/eab58e92-b4ee-41ba-b3ae-541968a13417 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:28,786 INFO httpx: HTTP Request: GET http://localhost:8000/documents/914d9fb9-9e45-49a8-9171-3559bdb52c57 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:29,703 INFO httpx: HTTP Request: GET http://localhost:8000/documents/293ba2a0-57d4-41a8-84c9-63c4326983a1 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:30,625 INFO httpx: HTTP Request: GET http://localhost:8000/documents/3edc7584-8827-4501-95b3-efdbe3de7530 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:31,514 INFO httpx: HTTP Request: GET http://localhost:8000/documents/66e4b9bb-34fd-47c6-990b-f61e2009e134 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:31,857 INFO httpx: HTTP Request: GET http://localhost:8000/documents/58262eec-72c3-4f2e-8a48-f6fb20e2d34f "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:32,331 INFO httpx: HTTP Request: GET http://localhost:8000/documents/4417e565-92b4-4011-a82e-18f5d80217da "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:32,802 INFO httpx: HTTP Request: GET http://localhost:8000/documents/5ba13ddc-dcda-4c7c-87d0-93c46d2d851e "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:33,845 INFO httpx: HTTP Request: GET http://localhost:8000/documents/8d49a8b4-d5e7-45fe-8cd6-f2e401e5d2ea "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:34,566 INFO httpx: HTTP Request: GET http://localhost:8000/documents/3ec16071-b310-447d-8ddc-118ce410a15c "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:35,030 INFO httpx: HTTP Request: GET http://localhost:8000/documents/f4f64999-bb69-4d55-b0ba-44b317cef2df "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:35,260 INFO httpx: HTTP Request: GET http://localhost:8000/documents/658596f9-a6ad-48bb-9eea-33f97fc0545f "HTTP/1.1 200 OK"
+2026-08-21 09:15:36,095 INFO httpx: HTTP Request: GET http://localhost:8000/documents/10ff1965-c90d-434c-81ea-3d394d23e38b "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:36,540 INFO httpx: HTTP Request: GET http://localhost:8000/documents/bbe486da-b97d-4a0e-80fa-2c11c69b5952 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:37,757 INFO httpx: HTTP Request: GET http://localhost:8000/documents/c3d98111-8c87-4b98-abe2-915c81c64cbc "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:38,135 INFO httpx: HTTP Request: GET http://localhost:8000/documents/c80659c8-c3ee-4c58-ad70-d279906e784f "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:38,519 INFO httpx: HTTP Request: GET http://localhost:8000/documents/ff4e6e9e-2dae-4614-9630-890f8e4fa934 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:39,256 INFO httpx: HTTP Request: GET http://localhost:8000/documents/c228ccc3-f7d0-4a5d-8426-2d823b9865cc "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:40,188 INFO httpx: HTTP Request: GET http://localhost:8000/documents/142936d3-dc35-4976-9d1b-6774636f283d "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:40,800 INFO httpx: HTTP Request: GET http://localhost:8000/documents/c152b4f3-c8bc-4bd2-93f0-a12d1ff068b0 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:41,567 INFO httpx: HTTP Request: GET http://localhost:8000/documents/73ce1c85-f48e-4a66-a501-a536d769fe57 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:42,774 INFO httpx: HTTP Request: GET http://localhost:8000/documents/db44ded7-ee5e-41b1-92be-dfbd9d55eeff "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:43,692 INFO httpx: HTTP Request: GET http://localhost:8000/documents/221e650b-6b6f-4bd3-b61e-1b49a366d723 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:44,232 INFO httpx: HTTP Request: GET http://localhost:8000/documents/7454d16b-558d-4e1f-a2af-543197771846 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:44,931 INFO httpx: HTTP Request: GET http://localhost:8000/documents/cb91fad0-cfa9-4c9c-b18b-2512a1f70435 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:45,939 INFO httpx: HTTP Request: GET http://localhost:8000/documents/01557546-f964-41a6-8d46-123317f986be "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:46,605 INFO httpx: HTTP Request: GET http://localhost:8000/documents/9acb3e28-f294-434d-a1bf-08a30b234531 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:47,414 INFO httpx: HTTP Request: GET http://localhost:8000/documents/219c383b-89ea-471d-8556-cf688cc4ac33 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:48,092 INFO httpx: HTTP Request: GET http://localhost:8000/documents/5bb66377-1dd0-4236-82ea-f5af83fd334e "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:48,678 INFO httpx: HTTP Request: GET http://localhost:8000/documents/23a68c07-b8dd-4b8c-9098-855c1656f2e0 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:49,074 INFO httpx: HTTP Request: GET http://localhost:8000/documents/3a430403-b429-456b-8185-a2a6b839bb9a "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:49,974 INFO httpx: HTTP Request: GET http://localhost:8000/documents/60b76b2e-3ce6-454a-ae1d-a6c23567b6a2 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:51,398 INFO httpx: HTTP Request: GET http://localhost:8000/documents/98a42eca-e474-4005-9045-d02542f752da "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:52,688 INFO httpx: HTTP Request: GET http://localhost:8000/documents/61549e72-32b0-4388-ac00-c3f59fc6f96a "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:53,698 INFO httpx: HTTP Request: GET http://localhost:8000/documents/dc2b599e-49e6-4106-ba7e-bddcdef5de46 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:53,951 INFO httpx: HTTP Request: GET http://localhost:8000/documents/3ba35795-021f-4e05-be11-a21916941f01 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:54,977 INFO httpx: HTTP Request: GET http://localhost:8000/documents/c1592ce7-cbaa-4bac-8c13-a04b5ee0e39e "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:55,656 INFO httpx: HTTP Request: GET http://localhost:8000/documents/8570fe81-2dc3-4b23-8fe7-303a771b8e0b "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:56,485 INFO httpx: HTTP Request: GET http://localhost:8000/documents/62278dd7-640c-4389-8a1c-74276e7feddc "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:56,961 INFO httpx: HTTP Request: GET http://localhost:8000/documents/072bac53-6a34-4ee1-bc66-d0236350de12 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:58,000 INFO httpx: HTTP Request: GET http://localhost:8000/documents/44a39aef-ab7f-41db-84e4-954dbf97504a "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:58,841 INFO httpx: HTTP Request: GET http://localhost:8000/documents/1f6f1610-7053-49b3-a312-f123dffb883d "HTTP/1.1 403 Forbidden"
+2026-08-21 09:15:59,922 INFO httpx: HTTP Request: GET http://localhost:8000/documents/dc1d7841-235c-4ed5-9b92-f68951a1f37d "HTTP/1.1 403 Forbidden"
+2026-08-21 09:16:00,249 INFO httpx: HTTP Request: GET http://localhost:8000/documents/a19037cd-e34f-4f75-9304-66090dd7d9e7 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:16:00,742 INFO httpx: HTTP Request: GET http://localhost:8000/documents/68b80995-c87d-4c17-a151-3d90c1ae03f4 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:16:01,452 INFO httpx: HTTP Request: GET http://localhost:8000/documents/5bc74eba-efe0-4ced-b837-7efc852bd4a3 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:16:02,507 INFO httpx: HTTP Request: GET http://localhost:8000/documents/03639239-7e22-40ae-96ca-b9308acb55e9 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:16:02,897 INFO httpx: HTTP Request: GET http://localhost:8000/documents/8ab557ba-e89b-4ce9-b953-a027f0d5867a "HTTP/1.1 403 Forbidden"
+2026-08-21 09:16:04,081 INFO httpx: HTTP Request: GET http://localhost:8000/documents/abbe06d1-b774-46f8-b789-7612fdc7f45b "HTTP/1.1 403 Forbidden"
+2026-08-21 09:16:05,012 INFO httpx: HTTP Request: GET http://localhost:8000/documents/19b5d0a0-e0f6-4bce-aa9e-1bc1791092ce "HTTP/1.1 403 Forbidden"
+2026-08-21 09:16:05,377 INFO httpx: HTTP Request: GET http://localhost:8000/orders/d820cfd6-e678-470f-a64d-71e566f1785a "HTTP/1.1 200 OK"
+2026-08-21 09:16:06,633 INFO httpx: HTTP Request: GET http://localhost:8000/documents/0fc0cae9-f4ed-40b8-824e-20749d7fe085 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:16:07,458 INFO httpx: HTTP Request: GET http://localhost:8000/documents/b1db8bea-ea79-4f7b-9158-c33df5378659 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:16:07,475 INFO httpx: HTTP Request: POST http://localhost:8000/documents "HTTP/1.1 201 Created"
+2026-08-21 09:16:08,292 INFO httpx: HTTP Request: GET http://localhost:8000/documents/5348dc6c-91e1-4c50-994a-011cc3c263f7 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:16:08,988 INFO httpx: HTTP Request: GET http://localhost:8000/documents/47a25ebd-3294-45ac-8e7f-bb62269211cc "HTTP/1.1 403 Forbidden"
+2026-08-21 09:16:10,036 INFO httpx: HTTP Request: GET http://localhost:8000/documents/c05447d9-25cb-4dd5-b323-a7ff71a9e231 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:16:10,467 INFO httpx: HTTP Request: GET http://localhost:8000/documents/7e5547d0-c880-495d-a0ab-02de89ec2175 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:16:11,575 INFO httpx: HTTP Request: GET http://localhost:8000/documents/0a9b9111-68f3-4c11-8a7b-ec3e7850ff07 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:16:12,386 INFO httpx: HTTP Request: GET http://localhost:8000/documents/0621387a-fe9b-438d-846e-0a700e5fda65 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:16:13,220 INFO httpx: HTTP Request: GET http://localhost:8000/documents/8aa60344-535d-4b4b-a9c9-40e0154b698c "HTTP/1.1 403 Forbidden"
+2026-08-21 09:16:13,660 INFO httpx: HTTP Request: GET http://localhost:8000/documents/4a876eb5-8711-4ccb-a0ab-b398da175fcf "HTTP/1.1 403 Forbidden"
+2026-08-21 09:16:14,770 INFO httpx: HTTP Request: GET http://localhost:8000/documents/3df740b9-3d58-430b-8717-5770666fc3e5 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:16:15,927 INFO httpx: HTTP Request: GET http://localhost:8000/documents/bd0af4d4-6cb6-4f8d-a683-ba55f314b6e6 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:16:17,011 INFO httpx: HTTP Request: GET http://localhost:8000/documents/6e53054d-aa8d-40dd-b422-82c99260b8aa "HTTP/1.1 403 Forbidden"
+2026-08-21 09:16:17,699 INFO httpx: HTTP Request: GET http://localhost:8000/documents/2ba03368-9391-4f45-a31f-9355f50f9eec "HTTP/1.1 403 Forbidden"
+2026-08-21 09:16:18,230 INFO httpx: HTTP Request: GET http://localhost:8000/documents/c89aa51a-9383-46f0-bbfc-4d0aab9b9a2b "HTTP/1.1 200 OK"
+2026-08-21 09:16:18,612 INFO httpx: HTTP Request: GET http://localhost:8000/documents/8adbac18-4957-4575-a2a9-f7696e381222 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:16:19,700 INFO httpx: HTTP Request: GET http://localhost:8000/documents/92a740dc-564f-4856-8090-68b44399bd00 "HTTP/1.1 403 Forbidden"
+2026-08-21 09:16:19,751 INFO httpx: HTTP Request: GET http://localhost:8000/orders/461243e4-68e3-4f81-984b-566708cc3076 "HTTP/1.1 200 OK"
+2026-08-21 09:16:20,638 WARNING generator.attacks: [ATTACK STOP  2026-08-21T08:16:20.638409+00:00] A-resource-enumeration {'actor': 'reader8@zt.local', 'documents_touched': 224}
+2026-08-21 09:16:21,440 INFO httpx: HTTP Request: GET http://localhost:8000/orders/cd25b0da-db2e-49ad-87a1-a5cd3735f5a3 "HTTP/1.1 200 OK"
+2026-08-21 09:16:22,411 INFO httpx: HTTP Request: GET http://localhost:8000/documents/719ffb35-0813-4dcf-9906-d0e1126589d1 "HTTP/1.1 200 OK"
+Checking gateway reachability at http://localhost:8000 ...
+Checking seeded users exist and can log in ...
+Checking X-Forwarded-For is honored (TRUSTED_PROXIES) ...
+  OK: distinct X-Forwarded-For values get distinct rate-limit budgets.
+Fetching resource pool (documents/orders) ...
+  224 documents, 184 orders
+
+======================================================================
+mode=attack  profile=baseline  scenario=A
+personas=25  seed=42  duration=180.0
+sample persona IPs: reader1@zt.local=10.10.0.1, reader2@zt.local=10.10.0.2, reader3@zt.local=10.10.0.3, reader4@zt.local=10.10.0.4, reader5@zt.local=10.10.0.5 ...
+======================================================================
+
+
+======================================================================
+SUMMARY
+total requests: 263   denies (403): 199   token refreshes: 0   step-ups (401): 11
+status counts: {200: 49, 401: 11, 403: 199, 201: 4}
+per-persona:
+  reader1@zt.local: {'requests': 2, 'status_counts': {200: 2}, 'denies': 0, 'refreshes': 0, 'step_ups': 0}
+  reader2@zt.local: {'requests': 0, 'status_counts': {}, 'denies': 0, 'refreshes': 0, 'step_ups': 0}
+  reader3@zt.local: {'requests': 1, 'status_counts': {200: 1}, 'denies': 0, 'refreshes': 0, 'step_ups': 0}
+  reader4@zt.local: {'requests': 1, 'status_counts': {200: 1}, 'denies': 0, 'refreshes': 0, 'step_ups': 0}
+  reader5@zt.local: {'requests': 1, 'status_counts': {200: 1}, 'denies': 0, 'refreshes': 0, 'step_ups': 0}
+  reader6@zt.local: {'requests': 1, 'status_counts': {200: 1}, 'denies': 0, 'refreshes': 0, 'step_ups': 0}
+  reader7@zt.local: {'requests': 0, 'status_counts': {}, 'denies': 0, 'refreshes': 0, 'step_ups': 0}
+  reader8@zt.local: {'requests': 224, 'status_counts': {200: 15, 401: 11, 403: 198}, 'denies': 198, 'refreshes': 0, 'step_ups': 11}
+  reader9@zt.local: {'requests': 1, 'status_counts': {200: 1}, 'denies': 0, 'refreshes': 0, 'step_ups': 0}
+  reader10@zt.local: {'requests': 1, 'status_counts': {200: 1}, 'denies': 0, 'refreshes': 0, 'step_ups': 0}
+  reader11@zt.local: {'requests': 0, 'status_counts': {}, 'denies': 0, 'refreshes': 0, 'step_ups': 0}
+  reader12@zt.local: {'requests': 6, 'status_counts': {403: 1, 200: 5}, 'denies': 1, 'refreshes': 0, 'step_ups': 0}
+  reader13@zt.local: {'requests': 0, 'status_counts': {}, 'denies': 0, 'refreshes': 0, 'step_ups': 0}
+  reader14@zt.local: {'requests': 4, 'status_counts': {200: 4}, 'denies': 0, 'refreshes': 0, 'step_ups': 0}
+  reader15@zt.local: {'requests': 2, 'status_counts': {200: 2}, 'denies': 0, 'refreshes': 0, 'step_ups': 0}
+  editor1@zt.local: {'requests': 1, 'status_counts': {200: 1}, 'denies': 0, 'refreshes': 0, 'step_ups': 0}
+  editor2@zt.local: {'requests': 3, 'status_counts': {200: 3}, 'denies': 0, 'refreshes': 0, 'step_ups': 0}
+  editor3@zt.local: {'requests': 2, 'status_counts': {200: 1, 201: 1}, 'denies': 0, 'refreshes': 0, 'step_ups': 0}
+  editor4@zt.local: {'requests': 1, 'status_counts': {201: 1}, 'denies': 0, 'refreshes': 0, 'step_ups': 0}
+  editor5@zt.local: {'requests': 2, 'status_counts': {200: 2}, 'denies': 0, 'refreshes': 0, 'step_ups': 0}
+  editor6@zt.local: {'requests': 1, 'status_counts': {200: 1}, 'denies': 0, 'refreshes': 0, 'step_ups': 0}
+  editor7@zt.local: {'requests': 7, 'status_counts': {201: 2, 200: 5}, 'denies': 0, 'refreshes': 0, 'step_ups': 0}
+  editor8@zt.local: {'requests': 0, 'status_counts': {}, 'denies': 0, 'refreshes': 0, 'step_ups': 0}
+  admin1@zt.local: {'requests': 2, 'status_counts': {200: 2}, 'denies': 0, 'refreshes': 0, 'step_ups': 0}
+  admin2@zt.local: {'requests': 0, 'status_counts': {}, 'denies': 0, 'refreshes': 0, 'step_ups': 0}
+======================================================================
