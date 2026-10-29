@@ -2,6 +2,10 @@
 .env
 **/.env
 docker/.env
+.env.*
+!.env.example
+*.pem
+*.key
 # Plaintext TOTP secrets for seeded demo personas (scripts/seed_users.py,
 # scripts/seed_business_data.py) -- demo/seed-time convenience only, never
 # committed.
@@ -15,17 +19,26 @@ __pycache__/
 *.pyc
 .venv/
 *.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
 
 # Node
 node_modules/
+dist/
 
 # Databases locales
 pgdata/
 redis_data/
 
-# IDE
+# IDE / OS
 .vscode/
 .idea/
+.DS_Store
+Thumbs.db
 
 # Markdown docs / reports (kept on disk, not versioned)
 *.md
+# ...except the public-facing docs, which must stay versioned
+!README.md
+!**/README.md
